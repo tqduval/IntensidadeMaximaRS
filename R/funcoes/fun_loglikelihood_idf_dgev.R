@@ -21,12 +21,12 @@ data <- df.imax %>%
   select(gauge_code, wateryear, d, imax)
 
 gauges <- unique(data$gauge_code)
-gauge <- "A802"
+gg <- "A801"
 
-data.gauge <- data %>% 
-  filter(gauge_code == gauge)
+data.gg <- data %>% 
+  filter(gauge_code == gg)
 
-y.id <- data.gauge %>% 
+y.id <- data.gg %>% 
   pivot_wider(names_from = d,
               values_from = imax,
               names_prefix = "d_") %>% 
@@ -144,48 +144,138 @@ grad.ll.dgev <- function(param, durations, y.id){
 }
 
 
-# Estimar parâmetros da GEV p/ cada duração
-param.d <- apply(X = y.id, MARGIN = 2, FUN = function(imax){
-  sample.lmom <- lmom::samlmu(imax)
-  gev.par <- lmom::pelgev(sample.lmom)
+# Estimar parâmetros iniciais
+start.dgev <- function(data.gg, durations, scale.inv = c("wide", "scrict")){
   
-})
+  data.imax <- data.gg[,c("d", "imax", "wateryear")]
+  
+  if(!identical(unique(data.imax$d), durations)) stop("Durations in 'durations' vector  and 'data.gg$d' do not match.")
+  scale.inv <- match.arg(scale.inv, c("wide", "scrict"))
+  
+  y.id <- data.imax %>% 
+    pivot_wider(names_from = d,
+                values_from = imax,
+                names_prefix = "d_") %>%
+    select(-wateryear) %>% 
+    as.matrix() %>% 
+    na.omit()
+  
+  # Expoente 'scale' de invariância de escala
+  scale <- switch(
+    scale.inv,
+    wide = {
+      mom <- apply(y.id, 2, function(imax) mean(imax))
+      scale <- -lm(log(mom) ~ log(durations))$coefficient[[2]]
+    },
+    scrict = {
+      scale.xi <- -lm(log(param.d["alpha",]) ~ log(durations))$coefficient[[2]]
+      scale.alpha <- -lm(log(param.d["alpha",]) ~ log(durations))$coefficient[[2]]
+      scale <- mean(scale.xi, scale.alpha)
+    }
+  )
+  
+  theta <- 0
+  
+  # Estimar parâmetros da GEV p/ cada duração
+  par.d <- apply(y.id, 2, function(imax){
+    sample.lmom <- lmom::samlmu(imax)
+    par <- lmom::pelgev(sample.lmom)
+  })
+  
+  alpha <- par.d[2,1]                          # estimate for first duration
+  xit <- par.d[1,1]/alpha                      # rescaled xi
+  alpha0 <- alpha*(durations[1] + theta)^scale # rescaled alpha
+  kappa <- mean(par.d[3,])                     # average kappa
+  
+  names <- c("xit", "alpha0", "kappa", "scale", "theta")
+  
+  return(setNames(c(xit, alpha0, kappa, scale, theta), names))
+  
+}
 
-
-# Parâmetros iniciais
-d1 <- durations[1]
-xi1 <- param.d[1.1]
-alpha1 <- param.d[2,1]
-H0 <- 0.6
-theta0 <- 0
-
-xit0 <- xi1/alpha1
-alpha0 <- alpha1*(d1 + theta0)^H0
-
-# Estimar 
-
-start <- c(xi1 = xit0,
-           alpha0 = alpha0,
-           kappa = param.d[3,1],
-           scale = H0,
-           offset = theta0)
-
+start <- start.dgev(data.gg, durations, scale.inv = "scrict")
+start <- start.dgev(data.gg, durations, scale.inv = "wide")
 
 # Otimizar
-optim(par = start,
-      fn = nll.dgev,
-      hessian = TRUE,
-      y.id = y.id,
-      durations = durations,
-      control = list(maxit = 1e6))
+fit <- optim(par = start, fn = nll.dgev, hessian = TRUE,
+             control = list(maxit = 1e9),
+             y.id = y.id, durations = durations) %>% print()
 
-optim(par = start,
-      fn = nll.dgev,
-      hessian = TRUE,
-      gr = grad.ll.dgev,
-      y.id = y.id,
-      durations = durations)
+par <- fit$par %>% print()
+
 
 param <- start
-ds <- as.numeric(gsub("d+_","", colnames(y.id)))
+# ds <- as.numeric(gsub("d+_","", colnames(y.id)))
+durations <- c(1, 4, 6, 8, 12, 24)
 
+q.dgev <- function(param, duration, p.nexceed){
+  
+  xit <- param[1]
+  alpha0 <- param[2]
+  kappa <- param[3]
+  H <- param[4]
+  theta <- param[5]
+  
+  p <- p.nexceed; d <- duration
+  
+  # Calcular parâmetros convencionais da GEV
+  alpha <- alpha0/(d + theta)^H
+  xi <- xit*alpha
+  
+  yp <- xi + alpha/kappa*(1 - (-log(p))^kappa)
+  
+  return(yp)
+  
+}
+
+rl <- c(5, 10, 50, 100)
+p <- 1 - 1/rl
+quantiles <- lapply(durations, q.dgev, p.nexceed = p, param = par)
+idf.aux <- matrix(unlist(quantiles), length(p), length(durations), dimnames = list(rl, durations))
+idf <- bind_cols(gauge_code = gg, t(idf.aux)) %>% 
+  pivot_longer(cols = where(is.numeric),
+               names_to = "return_level",
+               names_transform = list(return_level = as.numeric),
+               values_to = "q") %>% 
+  mutate(d = rep(durations, each = n_distinct(return_level)),
+         return_level = factor(return_level, unique(return_level))) %>% 
+  arrange(gauge_code, return_level)
+
+
+
+# VISUALIZATION -----------------------------------------------------------
+
+# Set theme
+suppressMessages(extrafont::loadfonts())
+font <- "Consolas"
+fontsize <- 8
+textsize <- (fontsize - 2)/.pt
+set_theme(theme_minimal() +
+            theme(text = element_text(color = "black", size = fontsize, family = font),
+                  axis.text = element_text(color = "black"),
+                  panel.border = element_rect(color = "black")))
+
+# Plot IDF
+ggplot() +
+  geom_line(aes(x = d, y = q, color = return_level), idf, linewidth = 0.5) +
+  geom_point(aes(x = d, y = imax), data.gg[data.gg$d %in% durations,], alpha = 0.4, color = "grey10", size = 0.8) +
+  scale_x_log10(breaks = durations) + scale_y_log10() +
+  # scale_color_manual(name = "T [years]", values = c("")) +
+  labs(x = "Duration [h]", y = "Intensity [mm/h]", color = "T [years]", caption = sprintf("Subdaily gauge: %s", gg)) +
+  theme(legend.position = c(1,1),
+        legend.justification = c(1,1),
+        legend.key.height = unit(fontsize - 1, "pt"),
+        legend.title = element_text(size = fontsize - 2))
+
+ggsave("figuras/idf_padrao.png", width = 12, height = 8, units = "cm", dpi = 300)
+
+
+
+# VALIDAÇÃO ---------------------------------------------------------------
+
+library(IDF)
+IDF.agg(list(as.data.frame(df.data[df.data$gauge_code == gg,])), ds = durations, names = c("datetime", "rain_mm"), na.accept = 0.2)
+xdat <- data.gg %>% rename(xdat = imax, ds = d)
+fit.ulrich <- IDF::gev.d.fit(xdat = xdat$xdat, ds = xdat$ds)
+par.ulrich <- IDF::gev.d.params(fit.ulrich) %>% print()
+par.eu <- fit$par %>% print()

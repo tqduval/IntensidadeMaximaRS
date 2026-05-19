@@ -8,7 +8,7 @@ rm(list = ls()); invisible(gc())
 if(!require(pacman)) install.packages("pacman")
 pacman::p_load(pacman,    # gerenciador de pacotes
                arrow,     # leitura de dados 'parquet'
-               lubridate, # manipulação de datas
+               tidyverse,
                parallel,
                beepr)
 
@@ -24,9 +24,9 @@ na.accept <- 0 # 0.2
 min.years <- 0 # 8
 
 # Funções
-source("scripts/funcoes/fun_filter_set.R") # preencher datas e filtrar
-source("scripts/funcoes/fun_group_ts.R")   # agrupar por time_step
-source("scripts/funcoes/fun_imax_agg_wateryear.R") # agregar por durações e calcular intensidade máxima anual por ano hidrológico
+source("R/funcoes/fun_filter_set.R") # preencher datas e filtrar
+source("R/funcoes/fun_group_ts.R")   # agrupar por time_step
+source("R/funcoes/fun_imax_agg_wateryear.R") # agregar por durações e calcular intensidade máxima anual por ano hidrológico
 
 # Preencher datas e filtrar conforme 'na_accept' e 'min_years'
 df.data <-  fun_filter_set(data = df.data,
