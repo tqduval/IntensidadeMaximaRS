@@ -40,10 +40,15 @@ durations <- as.numeric(stringr::str_remove_all(colnames(y.id), "d_"))
 
 # FUNÇÃO ------------------------------------------------------------------
 
-nll.dgev <- function(param,     # vetor c/ parâmetros 1. posicao 2. escala 3. forma 4. eta 5. theta
-                     durations, # vetor c/ durações (nomes de y.id)
-                     y.id       # matrix c/ série de máximos anuais observada p/ cada duração em colunas
-                     ){
+
+## nll.dgev ---------------------------------------------------------------
+
+#' @title Função de log-verossimilhança do modelo de d-GEV 
+#' @param param initial parameters: 1. location, 2. scale, 3. shape, 4. eta (power scale inv), 5. theta (offset scale inv)
+#' @param durations durations: same as colnames(y.id) [hours]
+#' @param y.id matrix with a column for each duration and annual intensity maximas on each row
+
+nll.dgev <- function(param, durations, y.id){
   
   # Parâmetros iniciais
   xit <- param[1]     # posição: xi~
@@ -193,15 +198,28 @@ start.dgev <- function(data.gg, durations, scale.inv = c("wide", "scrict")){
   
 }
 
-start <- start.dgev(data.gg, durations, scale.inv = "scrict")
+# start <- start.dgev(data.gg, durations, scale.inv = "scrict")
 start <- start.dgev(data.gg, durations, scale.inv = "wide")
 
-# Otimizar
-fit <- optim(par = start, fn = nll.dgev, hessian = TRUE,
-             control = list(maxit = 1e9),
-             y.id = y.id, durations = durations) %>% print()
+# method <- "Nelder-Mead"
+method <- "L-BFGS-B"
+maxit <- 1e9
+
+  
+# Otimização com funções gradiente
+fit <- optim(par = start, fn = nll.dgev, hessian = TRUE, gr = grad.ll.dgev,
+             method = method, control = list(maxit = maxit),
+             lower = c(-Inf, 1e-6, -Inf, 1e-6, -min(durations) + 1e-6),
+             upper = c( Inf,  Inf,  Inf, 1-1e-6, Inf),
+             y.id = y.id, durations = durations)
 
 par <- fit$par %>% print()
+
+message <- fit$convergence
+if(message == 0) message("Otimização concluída!")
+
+
+# Tentar: usar outro modelo IDF com xi0 = xi*(d + theta)^H
 
 
 param <- start
