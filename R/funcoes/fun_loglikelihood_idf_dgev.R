@@ -62,6 +62,7 @@ nll.dgev <- function(param, durations, y.id){
   
   # Limites teóricos
   if(any(durations + offset <= 0)) return(1e6) # impedir offset negativo
+  if(theta <= 0) return(1e6)                   # impedir offset negativo
   if(alpha0 <= 0) return(1e6)                  # impedir escala GEV nulo
   if(scale <= 0 | scale > 1) return(1e6)       # restrição invariância de escala
   
@@ -209,7 +210,7 @@ maxit <- 1e9
 # Otimização com funções gradiente
 fit <- optim(par = start, fn = nll.dgev, hessian = TRUE, gr = grad.ll.dgev,
              method = method, control = list(maxit = maxit),
-             lower = c(-Inf, 1e-6, -Inf, 1e-6, -min(durations) + 1e-6),
+             lower = c(-Inf, 1e-6, -Inf, 1e-6, min(durations) + 1e-6),
              upper = c( Inf,  Inf,  Inf, 1-1e-6, Inf),
              y.id = y.id, durations = durations)
 
