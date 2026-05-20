@@ -22,9 +22,18 @@ data <- df.imax %>%
 
 gauges <- unique(data$gauge_code)
 gg <- "A801"
+gg <- "430350901A"
+gg <- "430510802A"
 
 data.gg <- data %>% 
   filter(gauge_code == gg)
+
+cols <- c("wateryear", "d", "imax")
+
+teste <- data.gg %>% 
+  pivot_wider(names_from = cols[1],
+              values_from = cols[2],
+              names_prefix = "d_")
 
 y.id <- data.gg %>% 
   pivot_wider(names_from = d,
@@ -51,24 +60,24 @@ durations <- as.numeric(stringr::str_remove_all(colnames(y.id), "d_"))
 nll.dgev <- function(param, durations, y.id){
   
   # Parâmetros iniciais
-  xit <- param[1]     # posição: xi~
-  alpha0 <- param[2]  # escala: alpha0
-  kappa <- param[3]   # forma
-  scale <- param[4]   # invariância de escala (expoente de escala - H ou eta)
-  offset <- param[5]  # invariância de escala (parâmetro de posição - theta)
+  xit <- param[1]    # posição: xi~
+  alpha0 <- param[2] # escala: alpha0
+  kappa <- param[3]  # forma
+  H <- param[4]      # invariância de escala (expoente de escala - H ou eta)
+  theta <- param[5]  # invariância de escala (parâmetro de posição - theta)
   
   N <- nrow(y.id)
   D <- ncol(y.id)
   
   # Limites teóricos
-  if(any(durations + offset <= 0)) return(1e6) # impedir offset negativo
-  if(theta <= 0) return(1e6)                   # impedir offset negativo
-  if(alpha0 <= 0) return(1e6)                  # impedir escala GEV nulo
-  if(scale <= 0 | scale > 1) return(1e6)       # restrição invariância de escala
+  if(any(durations + theta <= 0)) return(1e6) # impedir offset negativo
+  if(theta <= 0) return(1e6)                  # impedir offset negativo
+  if(alpha0 <= 0) return(1e6)                 # impedir escala GEV nulo
+  if(H <= 0 | H > 1) return(1e6)              # restrição invariância de escala
   
-  # Calcular termos z.id = 1 - kappa(y.id*(d + offset)^scale)/alpha - xi~
+  # Calcular termos z.id = 1 - kappa*(y.id*(d + theta)^H)/alpha - xi~)
   # Função sweep() realiza uma operação nas linhas ou colunas de euma matriz
-  A <- (durations + offset)^scale # termo de alpha(d)
+  A <- (durations + theta)^H      # termo de alpha(d)
   aux <- sweep(x = y.id/alpha0,   # matriz c/ imax
                MARGIN  = 2,       # operação por colunas
                STATS = A,         # argumentos (nesse caso oq vai ser multiplicado por y.id)
@@ -81,7 +90,7 @@ nll.dgev <- function(param, durations, y.id){
   # return(1e10)
   
   # Log-verossimilhança
-  nll <- -(-N*D*log(alpha0) + scale*N*sum(log(durations + offset)) + (1/kappa - 1)*sum(log(z.id)) - sum(z.id^(1/kappa)))
+  nll <- -(-N*D*log(alpha0) + H*N*sum(log(durations + theta)) + (1/kappa - 1)*sum(log(z.id)) - sum(z.id^(1/kappa)))
   
   return(nll) # retornando negativo p/ "minimização"
   
@@ -202,22 +211,29 @@ start.dgev <- function(data.gg, durations, scale.inv = c("wide", "scrict")){
 # start <- start.dgev(data.gg, durations, scale.inv = "scrict")
 start <- start.dgev(data.gg, durations, scale.inv = "wide")
 
-# method <- "Nelder-Mead"
-method <- "L-BFGS-B"
+method <- "Nelder-Mead"
+# method <- "L-BFGS-B"
 maxit <- 1e9
 
-  
 # Otimização com funções gradiente
 fit <- optim(par = start, fn = nll.dgev, hessian = TRUE, gr = grad.ll.dgev,
              method = method, control = list(maxit = maxit),
-             lower = c(-Inf, 1e-6, -Inf, 1e-6, min(durations) + 1e-6),
-             upper = c( Inf,  Inf,  Inf, 1-1e-6, Inf),
              y.id = y.id, durations = durations)
 
 par <- fit$par %>% print()
 
-message <- fit$convergence
-if(message == 0) message("Otimização concluída!")
+convergence <- fit$convergence
+message <- fit$message
+if(convergence == 0){
+  message("Otimização concluída!")
+} else{
+  message("Houve um erro durante o processo de otimização com método ", method)
+  message(convergence, ": ", message)
+}
+
+ls.data <- split(data, data$gauge_code)
+teste <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "L-BFGS-B", scale.inv = "strict")
+teste <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "Nelder-Mead", scale.inv = "strict")
 
 
 # Tentar: usar outro modelo IDF com xi0 = xi*(d + theta)^H
@@ -276,7 +292,7 @@ set_theme(theme_minimal() +
 
 # Plot IDF
 ggplot() +
-  geom_line(aes(x = d, y = q, color = return_level), idf, linewidth = 0.5) +
+  # geom_line(aes(x = d, y = q, color = return_level), idf, linewidth = 0.5) +
   geom_point(aes(x = d, y = imax), data.gg[data.gg$d %in% durations,], alpha = 0.4, color = "grey10", size = 0.8) +
   scale_x_log10(breaks = durations) + scale_y_log10() +
   # scale_color_manual(name = "T [years]", values = c("")) +
@@ -288,6 +304,13 @@ ggplot() +
 
 ggsave("figuras/idf_padrao.png", width = 12, height = 8, units = "cm", dpi = 300)
 
+data.gg %>% 
+  filter(d %in% c(1, 2, 6, 12, 24)) %>% 
+  ggplot(aes(x = wateryear, y = imax, group = factor(d))) +
+  geom_line() +
+  labs(caption = sprintf("Gauge: %s", unique(data.gg$gauge_code))) +
+  theme(legend.position = "bottom")
+  
 
 
 # VALIDAÇÃO ---------------------------------------------------------------

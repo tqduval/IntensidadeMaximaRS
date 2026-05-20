@@ -1,4 +1,9 @@
-
+## Tarefas
+Otimização e verossimilhança:
+- [ ] Afrouxar as restrições algumas estações não estão ajustando e retornam `fit$max == 1e6`;
+- [ ] Parâmetro `theta` está retornando negativo para algumas estações;
+- [ ] Arrumar filtro de `durations` para permitir que um subconjunto das durações em `data.gg$d` possa ser selecionado em vez de todas (*overfitting*);
+- [ ] Adicionar distribuição *a priori* para $\kappa$ na função `nll.dgev()`;
 ## Parametrização de Koutsoyiannis et al. (1998) e Ulrich et al. (2020)
 
 A base para a parametrização da relação IDF de Koutsoyannis está na forma generalizada proposta:
