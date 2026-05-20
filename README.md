@@ -12,8 +12,14 @@ $b(d)$ nesse caso pode ser escrito como $b(d) = (d + \theta)^\eta$ e $a(T)$ send
 Considerando que a intensidade $I(d)$ de uma determinada duração $d$ possui distribuição $F_{I(d)}(i,d)$, essa será a mesma distribuição de uma variável $Y$ dada por $Y:=I(d)B(d)$, que nada mais é que a intensidade escalonada por $(d)$.
 
 Essa relação de probabilidades é expressa por: $$P\{I(d) \leq i\} = P\{I(d) b(d) \leq i b(d)\} = P\{Y\leq y\},$$
-e também pode ser escrita como $$F_{I(d)}(i,d) = F_Y(y_T) = 1 - \frac{1}{T}.$$
-Logo, sendo $y_T$ o quantil $(1 - 1/T)$ da distribuição de CDF $F_Y$, então: $$ y_T \equiv a(T) = F_Y^{-1}(1 - 1/T). $$
+e também pode ser escrita como
+$$
+F_{I(d)}(i,d) = F_Y(y_T) = 1 - \frac{1}{T}.
+$$
+Logo, sendo $y_T$ o quantil $(1 - 1/T)$ da distribuição de CDF $F_Y$, então:
+$$ 
+y_T \equiv a(T) = F_Y^{-1}(1 - 1/T).
+$$
 Se $I(d)\sim GEV (\xi(d), \alpha(d), \kappa)$ e $P\{I(d) \leq i\} = P\{Y \leq y\}$:
 
 $$
