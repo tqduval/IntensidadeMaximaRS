@@ -1,9 +1,9 @@
 ## Tarefas
 Otimização e verossimilhança:
-- [ ] Afrouxar as restrições algumas estações não estão ajustando e retornam `fit$max == 1e6`;
-- [ ] Parâmetro `theta` está retornando negativo para algumas estações;
-- [ ] Arrumar filtro de `durations` para permitir que um subconjunto das durações em `data.gg$d` possa ser selecionado em vez de todas (*overfitting*);
-- [ ] Adicionar distribuição *a priori* para $\kappa$ na função `nll.dgev()`;
+- [ ] Adicionar restrições para `a + kappa` dentro da função `nll.dgev()` seguindo a formulação em `aux_function.R` para a verossimilhança para uma única duração;
+- [x] Adicionar distribuição *a priori* para $\kappa$ na função `nll.dgev()`;
+- [x] Afrouxar as restrições algumas estações não estão ajustando e retornam `fit$max == 1e6`;
+- [x] Parâmetro `theta` está retornando negativo para algumas estações;
 ## Parametrização de Koutsoyiannis et al. (1998) e Ulrich et al. (2020)
 
 A base para a parametrização da relação IDF de Koutsoyannis está na forma generalizada proposta:
@@ -71,3 +71,21 @@ I(d,p) = \tilde\xi\alpha(d) + \frac{\alpha(d)}{\kappa}\left\{ 1 - [-\log(p)]^\ka
 I(d,T) = \frac{\tilde\xi\alpha_0}{(d+\theta)^H} + \frac{\alpha_0}{\kappa(d+\theta)^H}\left\{ 1 - \left[-\log\left(1-\frac{1}{T}\right)\right]^\kappa \right\}.
 \end{gather}
 ```
+## Derivada do logaritmo de $\pi(\kappa)$
+A distribuição a priori do parâmetro de forma $\kappa$ pode ser dada por uma distribuição Beta definida entre $[-0.50, +0.50]$ conforme Martins e Stedinger (2000):
+
+$$
+\pi(\kappa) = \frac{(0.50 + \kappa)^{p-1}(0.50 - \kappa)^{q-1}}{\Gamma(p)\Gamma(q)/\Gamma(p+q)}
+$$
+
+Para combinar à função de log-verossimilhança, tiramos o logaritmo de $\pi(\kappa)$:
+
+$$
+\log\pi[(\kappa)] = (p-1)\log(0.50 + \kappa) + (q-1)\log(0.50 - \kappa)
+$$
+
+Podemos remover o denominador, pois este não depende de $\kappa$ e não influenciará os parâmetros resultantes durante a otimização. Além disso, também precisamos derivar a expressão acima em função de $\kappa$ para incluí-la na função gradiente.
+
+$$
+\frac{\partial\log[\pi(\kappa)]}{\partial\kappa} = \frac{p-1}{0.50 + \kappa} + \frac{q-1}{0.50 - \kappa}
+$$

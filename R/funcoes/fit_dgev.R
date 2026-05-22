@@ -4,7 +4,7 @@
 #' @param scale.inv 
 #' @param maxit maximum number of iterations for 'optim()'
 
-fit.dgev <- function(data.gg, durations = NULL,
+fit.dgev <- function(data.gg,
                      cols = c("gauge_code", "year", "duration", "imax"),
                      method = c("Nelder-Mead", "L-BFGS-B"),
                      scale.inv = c("wide", "strict"),
@@ -17,14 +17,7 @@ fit.dgev <- function(data.gg, durations = NULL,
   # Conferir argumentos
   if(!is.data.frame(data.gg)) stop("Argumento 'data.gg' deve ser 'tbl_df' e não ", class(data.gg))
   if(sum(is.element(cols, names(data.gg))) != length(cols)) stop("Colunas indicadas em 'cols' devem estar contidas em 'data.gg'\ncols: ", cols, "\nnames(data.gg): ", names(data.gg))
-  if(!is.null(durations)){
-    if(!any(durations %in% unique(data.gg[[cols[3]]]))){
-      warning("Some durations in 'durations' are not in 'data.gg'. Using durations in 'data.gg' instead")
-      durations <- unique(data.gg[[cols[2]]])
-    }
-  } else{
-    durations <- unique(data.gg[[cols[3]]])
-  }
+
   method <- match.arg(method, c("Nelder-Mead", "L-BFGS-B"))
   scale.inv <- match.arg(scale.inv, c("wide", "strict"))
   
@@ -45,7 +38,7 @@ fit.dgev <- function(data.gg, durations = NULL,
     
     # Limites teóricos
     if(any(durations + theta <= 0)) return(1e6) # impedir offset negativo
-    if(theta <= 0) return(1e6)                  # impedir offset negativo
+    if(theta < 0) return(1e6)                  # impedir offset negativo
     if(alpha0 <= 0) return(1e6)                 # impedir escala GEV nulo
     if(H <= 0 | H > 1) return(1e6)              # restrição invariância de escala
     
@@ -60,7 +53,7 @@ fit.dgev <- function(data.gg, durations = NULL,
     z.id <- 1 - kappa*(aux - xit) # variável reduzida vetorizada
     
     # Conferir limites teóricos
-    if(any(z.id <= 0)) return(1e6)
+    if(any(z.id <= 0)) return(1e8)
     # return(1e10)
     
     # Log-verossimilhança
@@ -93,6 +86,7 @@ fit.dgev <- function(data.gg, durations = NULL,
       }
     )
     
+    if(scale < 0) scale <- 0.5
     theta <- 0
     alpha <- par.d[2,1]                          # estimate for first duration
     xit <- par.d[1,1]/alpha                      # rescaled xi
@@ -168,8 +162,9 @@ fit.dgev <- function(data.gg, durations = NULL,
   #### CÁLCULOS ----
   
   # Configurar dados
+  durations <- unique(data.gg[[cols[3]]])
   gg <- unique(data.gg[[cols[1]]])
-  data.gg <- data.gg[data.gg[[cols[3]]] %in% durations, cols] # manter somente imax e d
+  data.gg <- data.gg[, cols] # manter somente imax e d
   y.id <- data.gg %>% 
     pivot_wider(names_from = cols[3], # transformar durações em colunas
                 values_from = cols[4],
@@ -191,6 +186,7 @@ fit.dgev <- function(data.gg, durations = NULL,
     fit <- tryCatch(
       optim(par = start, fn = nll.dgev, gr = grad.ll.dgev,
             method = "L-BFGS-B", lower = lower, upper = upper,
+            hessian = TRUE,
             durations = durations, y.id = y.id,
             control = list(maxit = maxit)),
       error = function(e){
@@ -198,6 +194,7 @@ fit.dgev <- function(data.gg, durations = NULL,
         return(NULL)
       }
     )
+  
     if(!is.null(fit) && fit$convergence == 0) return(fit)
   }
   
@@ -207,11 +204,8 @@ fit.dgev <- function(data.gg, durations = NULL,
                durations = durations, y.id = y.id,
                control = list(maxit = maxit))
   
-  if(fit$value == 1e6) warning("Não houve otimização na estação ", gg, "! Retornando parâmetros iniciais:\n", paste(start, collapse = " "))
+  if(fit$value == 1e6) warning("Não houve otimização na estação ", gg, "! Retornando parâmetros iniciais:\n", paste(round(start, 4), collapse = " "))
   
   return(fit)
   
 }
-
-fit.dgev(data.gg, cols = c("gauge_code", "wateryear", "d", "imax"), method = "L-BFGS-B", scale.inv = "wide")
-fit.dgev(data.gg, cols = c("gauge_code", "wateryear", "d", "imax"), method = "Nelder-Mead", scale.inv = "wide") # não está funcionando

@@ -24,6 +24,7 @@ gauges <- unique(data$gauge_code)
 gg <- "A801"
 gg <- "430350901A"
 gg <- "430510802A"
+gg <- "SBPA"
 
 data.gg <- data %>% 
   filter(gauge_code == gg)
@@ -232,19 +233,32 @@ if(convergence == 0){
 }
 
 ls.data <- split(data, data$gauge_code)
-teste <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "L-BFGS-B", scale.inv = "strict")
-teste <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "Nelder-Mead", scale.inv = "strict")
+teste <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "L-BFGS-B", scale.inv = "strict") # só L-BFGS-B está funcionando
+teste <- pbapply::pblapply(ls.data, fit.dgev, 
+                           prior.info = c(0.0178, 0.0627),
+                           cols = names(data), 
+                           method = "L-BFGS-B", 
+                           scale.inv = "strict") # só L-BFGS-B está funcionando
+df.teste <- bind_rows(
+  lapply(seq_along(teste), function(i){
+    fit <- teste[[i]]
+    gg <- names(teste[i])
+    row <- tibble(gauge_code = gg, par_name = names(fit$par), par = fit$par, convergence = fit$convergence, message = fit$message,
+                  value = fit$value, hessian = list(as_tibble(fit$hessian)))
+  })
+)
 
 
-# Tentar: usar outro modelo IDF com xi0 = xi*(d + theta)^H
+# QUANTIS -----------------------------------------------------------------
 
-
-param <- start
+fit <- teste[["430350901A"]]
+par <- fit$par
 # ds <- as.numeric(gsub("d+_","", colnames(y.id)))
 durations <- c(1, 4, 6, 8, 12, 24)
 
 q.dgev <- function(param, duration, p.nexceed){
   
+  param <- unname(param)
   xit <- param[1]
   alpha0 <- param[2]
   kappa <- param[3]
@@ -292,10 +306,9 @@ set_theme(theme_minimal() +
 
 # Plot IDF
 ggplot() +
-  # geom_line(aes(x = d, y = q, color = return_level), idf, linewidth = 0.5) +
+  geom_line(aes(x = d, y = q, color = return_level), idf, linewidth = 0.5) +
   geom_point(aes(x = d, y = imax), data.gg[data.gg$d %in% durations,], alpha = 0.4, color = "grey10", size = 0.8) +
   scale_x_log10(breaks = durations) + scale_y_log10() +
-  # scale_color_manual(name = "T [years]", values = c("")) +
   labs(x = "Duration [h]", y = "Intensity [mm/h]", color = "T [years]", caption = sprintf("Subdaily gauge: %s", gg)) +
   theme(legend.position = c(1,1),
         legend.justification = c(1,1),
