@@ -8,6 +8,15 @@
 
 rm(list = ls()); invisible(gc())
 
+# Set theme
+suppressMessages(extrafont::loadfonts())
+font <- "Consolas"
+fontsize <- 8
+textsize <- (fontsize - 2)/.pt
+set_theme(theme_minimal() +
+            theme(text = element_text(color = "black", size = fontsize, family = font),
+                  axis.text = element_text(color = "black"),
+                  panel.border = element_rect(color = "black")))
 
 pacman::p_load(pacman, tidyverse, arrow, numDeriv, evd)
 
@@ -25,6 +34,9 @@ gg <- "A801"
 gg <- "430350901A"
 gg <- "430510802A"
 gg <- "SBPA"
+gg <- "A884" # falha na otimização
+gg <- "431020703A"
+gg <- "A803"
 
 data.gg <- data %>% 
   filter(gauge_code == gg)
@@ -210,7 +222,7 @@ start.dgev <- function(data.gg, durations, scale.inv = c("wide", "scrict")){
 }
 
 # start <- start.dgev(data.gg, durations, scale.inv = "scrict")
-start <- start.dgev(data.gg, durations, scale.inv = "wide")
+start <- start.dgev(y.id, durations, scale.inv = "wide")
 
 method <- "Nelder-Mead"
 # method <- "L-BFGS-B"
@@ -233,12 +245,19 @@ if(convergence == 0){
 }
 
 ls.data <- split(data, data$gauge_code)
-teste <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "L-BFGS-B", scale.inv = "strict") # só L-BFGS-B está funcionando
-teste <- pbapply::pblapply(ls.data, fit.dgev, 
+teste.nprior <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "Nelder-Mead", scale.inv = "strict") # só L-BFGS-B está funcionando
+teste.nprior <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method = "L-BFGS-B", scale.inv = "strict") # só L-BFGS-B está funcionando
+# teste <- pbapply::pblapply(ls.data, fit.dgev, 
+teste.wprior <- pbapply::pblapply(ls.data, fit.dgev,
                            prior.info = c(0.0178, 0.0627),
                            cols = names(data), 
-                           method = "L-BFGS-B", 
+                           # method = "Nelder-Mead", 
+                           method = "L-BFGS-B",
                            scale.inv = "strict") # só L-BFGS-B está funcionando
+
+par.nprior.gg <- teste.nprior[[gg]]$par %>% print()
+par.wprior.gg <- teste.wprior[[gg]]$par %>% print()
+
 df.teste <- bind_rows(
   lapply(seq_along(teste), function(i){
     fit <- teste[[i]]
@@ -251,10 +270,12 @@ df.teste <- bind_rows(
 
 # QUANTIS -----------------------------------------------------------------
 
-fit <- teste[["430350901A"]]
-par <- fit$par
+# fit <- teste[[gg]]
+fit <- teste.nprior[[gg]]
+fit <- teste.wprior[[gg]]
+par <- fit$par %>% print()
 # ds <- as.numeric(gsub("d+_","", colnames(y.id)))
-durations <- c(1, 4, 6, 8, 12, 24)
+durations <- c(1, 2, 4, 6, 8, 12, 24)
 
 q.dgev <- function(param, duration, p.nexceed){
   
@@ -277,45 +298,110 @@ q.dgev <- function(param, duration, p.nexceed){
   
 }
 
-rl <- c(5, 10, 50, 100)
-p <- 1 - 1/rl
-quantiles <- lapply(durations, q.dgev, p.nexceed = p, param = par)
-idf.aux <- matrix(unlist(quantiles), length(p), length(durations), dimnames = list(rl, durations))
-idf <- bind_cols(gauge_code = gg, t(idf.aux)) %>% 
-  pivot_longer(cols = where(is.numeric),
-               names_to = "return_level",
-               names_transform = list(return_level = as.numeric),
-               values_to = "q") %>% 
-  mutate(d = rep(durations, each = n_distinct(return_level)),
-         return_level = factor(return_level, unique(return_level))) %>% 
-  arrange(gauge_code, return_level)
+data.gg <- data[data$gauge_code == gg,]
+y.id.gg <- data.gg %>% 
+  pivot_wider(names_from = cols[3],
+              values_from = cols[4],
+              names_prefix = "d_") %>% 
+  arrange(wateryear) %>% 
+  select(-cols[1:2]) %>% 
+  na.omit() %>% 
+  as.matrix()
 
+# Posiçao de plotagem de Gringorten
+freq.obs <- apply(y.id.gg, 2, function(ams){
+  sorted <- sort(ams, decreasing = TRUE)
+  n <- length(ams)
+  i <- 1:length(ams)
+  p <- (i - 0.44)/(n + 0.12)
+})
+
+rp <- c(5, 10, 50, 100, 200)
+p <- 1 - 1/rp
+rp <- 1/freq.obs[,1]
+quantiles <- lapply(durations, q.dgev, p.nexceed = p, param = par)
+quantiles <- lapply(durations, q.dgev, p.nexceed = 1 - freq.obs[,1], param = par) # passar prob. não excedência
+idf.aux <- matrix(unlist(quantiles), length(freq.obs[,1]), length(durations), dimnames = list(rp, durations))
+idf.aux <- matrix(unlist(quantiles), length(p), length(durations), dimnames = list(rp, durations))
+idf <- bind_cols(gauge_code = gg, idf.aux) %>% 
+  mutate(return_period = rp) %>% 
+  pivot_longer(cols = -c(gauge_code, return_period),
+               names_to = "d",
+               names_transform = list(d = as.numeric),
+               values_to = "q") %>% print()
+
+# Frequencias observadas e valores
+df.fq.obs <- y.id.gg %>% 
+  as_tibble() %>% 
+  pivot_longer(cols = where(is.numeric),
+               names_prefix = "d_",
+               names_to = "d",
+               names_transform = list(d = as.numeric),
+               values_to = "imax") %>% 
+  group_by(d) %>% 
+  arrange(desc(imax)) %>% 
+  mutate(n = length(imax), i = row_number(),
+         p_weibull = i/(n + 1), tr_weibull = 1/p_weibull,
+         p_cunanne = (i - 0.4)/(n + 0.2), tr_cunanne = 1/p_cunanne,
+         p_gring = (i - 0.44)/(n + 0.12), tr_gring = 1/p_gring) %>% 
+  ungroup() %>% print()
 
 
 # VISUALIZATION -----------------------------------------------------------
 
-# Set theme
-suppressMessages(extrafont::loadfonts())
-font <- "Consolas"
-fontsize <- 8
-textsize <- (fontsize - 2)/.pt
-set_theme(theme_minimal() +
-            theme(text = element_text(color = "black", size = fontsize, family = font),
-                  axis.text = element_text(color = "black"),
-                  panel.border = element_rect(color = "black")))
+# Plotar curva de frequência
+ggplot() +
+  geom_line(aes(x = return_period, y = q, color = factor(d)), idf %>% mutate(return_period = as.numeric(return_period))) +
+  geom_point(aes(x = tr_gring, y = imax, color = factor(d)), df.fq.obs %>% filter(d %in% durations)) +
+  scale_x_log10() +
+  labs(x = "T [years]", y = "Intensity [mm/h]", color = "Duration [h]", caption = sprintf("Subdaily gauge: %s", gg)) +
+  theme(legend.position = c(0,1),
+        legend.justification = c(0,1),
+        legend.key.height = unit(fontsize, "pt"),
+        legend.title = element_text(size = fontsize - 2))
 
 # Plot IDF
 ggplot() +
-  geom_line(aes(x = d, y = q, color = return_level), idf, linewidth = 0.5) +
+  geom_line(aes(x = d, y = q, color = factor(return_period)), idf, linewidth = 0.5) +
   geom_point(aes(x = d, y = imax), data.gg[data.gg$d %in% durations,], alpha = 0.4, color = "grey10", size = 0.8) +
-  scale_x_log10(breaks = durations) + scale_y_log10() +
+  scale_x_log10(breaks = durations) +
+  # scale_y_log10() +
   labs(x = "Duration [h]", y = "Intensity [mm/h]", color = "T [years]", caption = sprintf("Subdaily gauge: %s", gg)) +
   theme(legend.position = c(1,1),
         legend.justification = c(1,1),
         legend.key.height = unit(fontsize - 1, "pt"),
         legend.title = element_text(size = fontsize - 2))
 
-ggsave("figuras/idf_padrao.png", width = 12, height = 8, units = "cm", dpi = 300)
+q.nprior <- lapply(durations, q.dgev, p.nexceed = p, param = par.nprior.gg)
+q.wprior <- lapply(durations, q.dgev, p.nexceed = p, param = par.wprior.gg)
+idf.nprior.aux <- matrix(unlist(q.nprior), length(p), length(durations), dimnames = list(rp, durations))
+idf.wprior.aux <- matrix(unlist(q.wprior), length(p), length(durations), dimnames = list(rp, durations))
+idf.nprior <- bind_cols(gauge_code = gg, idf.nprior.aux) %>% 
+  mutate(return_period = rp) %>% 
+  pivot_longer(cols = -c(gauge_code, return_period),
+               names_to = "d",
+               names_transform = list(d = as.numeric),
+               values_to = "q") %>% print()
+idf.wprior <- bind_cols(gauge_code = gg, idf.wprior.aux) %>% 
+  mutate(return_period = rp) %>% 
+  pivot_longer(cols = -c(gauge_code, return_period),
+               names_to = "d",
+               names_transform = list(d = as.numeric),
+               values_to = "q") %>% print()
+
+ggplot() +
+  geom_line(aes(x = d, y = q, color = factor(return_period)), idf.nprior, linewidth = 0.5, linetype = "dashed") +
+  geom_line(aes(x = d, y = q, color = factor(return_period)), idf.wprior, linewidth = 0.5, linetype = "solid") +
+  # geom_point(aes(x = d, y = imax), data.gg[data.gg$d %in% durations,], alpha = 0.4, color = "grey10", size = 0.8) +
+  scale_x_log10(breaks = durations) +
+  scale_y_log10() +
+  labs(x = "Duration [h]", y = "Intensity [mm/h]", color = "T [years]", caption = sprintf("Subdaily gauge: %s", gg)) +
+  theme(legend.position = c(1,1),
+        legend.justification = c(1,1),
+        legend.key.height = unit(fontsize - 1, "pt"),
+        legend.title = element_text(size = fontsize - 2))
+
+ggsave("figuras/idf_compare.png", width = 12, height = 8, units = "cm", dpi = 300)
 
 data.gg %>% 
   filter(d %in% c(1, 2, 6, 12, 24)) %>% 

@@ -25,7 +25,7 @@ fit.dgev <- function(data.gg,
   #### FUNÇÕES ----
   
   # Função de log-verossimilhança do modelo d-GEV
-  nll.dgev <- function(param, durations, y.id){
+  nll.dgev <- function(param, durations, y.id, prior.info){
     
     # Parâmetros iniciais
     xit <- param[1]    # posição: xi~
@@ -38,10 +38,10 @@ fit.dgev <- function(data.gg,
     D <- ncol(y.id)
     
     # Limites teóricos
-    if(any(durations + theta <= 0)) return(1e6) # impedir offset negativo
-    if(theta < 0) return(1e6)                  # impedir offset negativo
-    if(alpha0 <= 0) return(1e6)                 # impedir escala GEV nulo
-    if(H <= 0 | H > 1) return(1e6)              # restrição invariância de escala
+    if(any(durations + theta <= 0)) return(1e6 + abs(min(durations + theta))*1e4) # impedir offset negativo
+    if(theta < 0) return(1e6 + abs(theta)*1e4)    # impedir offset negativo
+    if(alpha0 <= 0) return(1e6 + abs(alpha0)*1e4) # impedir escala GEV nulo
+    if(H <= 0 | H > 1) return(1e6 + abs(H)*1e4)   # restrição invariância de escala
     
     # Calcular termos z.id = 1 - kappa*(y.id*(d + theta)^H)/alpha - xi~)
     # Função sweep() realiza uma operação nas linhas ou colunas de euma matriz
@@ -54,10 +54,10 @@ fit.dgev <- function(data.gg,
     z.id <- 1 - kappa*(aux - xit) # variável reduzida vetorizada
     
     # Conferir limites teóricos
-    if(any(z.id <= 0)) return(1e8)
-    # return(1e10)
+    # if(any(z.id <= 0)) return(1e8)
+    if(any(z.id <= 1e-6)) return(1e6 + abs(min(z.id))*1e4)
     
-    # Log-beta
+    # Definir priori log-beta caso tenha sido informada
     if(!is.null(prior.info)){
       
       mu.kappa <- prior.info[1]
@@ -68,7 +68,8 @@ fit.dgev <- function(data.gg,
       p <- b^2*(1-b)/var.kappa-b
       q <- p*(1/b-1)
       
-      l.prior <- (p - 1)*log(a + mu.kappa) + (q - 1)*log(a - mu.kappa)
+      if(a - abs(kappa) <= 1e-6) return(1e6) # impedir log(<0)
+      l.prior <- (p - 1)*log(a + kappa) + (q - 1)*log(a - kappa)
       
     } else{
       
@@ -93,38 +94,37 @@ fit.dgev <- function(data.gg,
       par <- lmom::pelgev(sample.lmom)
     })
     
-    # Expoente 'scale' de invariância de escala
-    scale <- switch(
+    # Expoente 'H' (scale) de invariância de escala
+    H <- switch(
       scale.inv,
       wide = {
         mom <- apply(y.id, 2, function(imax) mean(imax))
-        scale <- -lm(log(mom) ~ log(durations))$coefficient[[2]]
+        H <- -lm(log(mom) ~ log(durations))$coefficient[[2]]
       },
       strict = {
-        scale.xi <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
-        scale.alpha <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
-        scale <- mean(scale.xi, scale.alpha)
+        H.xi <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
+        H.alpha <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
+        H <- mean(H.xi, H.alpha)
       }
     )
     
-    if(scale < 0) scale <- 0.5
+    if(H <= 1e-6 || H >= 1 - 1e-6) H <- 0.5
     theta <- 0
     alpha <- par.d[2,1]                          # estimate for first duration
     xit <- par.d[1,1]/alpha                      # rescaled xi
-    alpha0 <- alpha*(durations[1] + theta)^scale # rescaled alpha
+    alpha0 <- alpha*(durations[1] + theta)^H     # rescaled alpha
     kappa <- mean(par.d[3,])                     # average kappa
-    kappa <- ifelse(abs(kappa) >= 0.5, prior.info[1], kappa)
-    # kappa <- min(0.5 - 1e-6, max(-0.5 + 1e-6, kappa))
+    # kappa <- ifelse(abs(kappa) >= 0.5, prior.info[1], kappa)
+    kappa <- min(0.5 - 1e-6, max(-0.5 + 1e-6, kappa))
     
+    names <- c("xit", "alpha0", "kappa", "H", "theta")
     
-    names <- c("xit", "alpha0", "kappa", "scale", "theta")
-    
-    return(setNames(c(xit, alpha0, kappa, scale, theta), names))
+    return(setNames(c(xit, alpha0, kappa, H, theta), names))
     
   }
   
   # Função gradiente log-verossimilhança
-  grad.ll.dgev <- function(param, durations, y.id){
+  grad.ll.dgev <- function(param, durations, y.id, prior.info){
     
     # Parameters
     xit <- param[1]
@@ -163,7 +163,6 @@ fit.dgev <- function(data.gg,
     dl.dalpha0 <- -(N*D)/alpha0 + (1 - kappa)*sum(yA*z.inv/(alpha0^2)) - sum(z.pow*yA/(alpha0^2))
     
     # Forma (kappa)
-    
     if(!is.null(prior.info)){
       
       mu.kappa <- prior.info[1]
@@ -173,9 +172,9 @@ fit.dgev <- function(data.gg,
       b <- mu.kappa+a
       p <- b^2*(1-b)/var.kappa-b
       q <- p*(1/b-1)
-      if(a - abs(kappa) <= 1e-8) return(1e6)
+      if(a - abs(kappa) <= 1e-6) return(rep(1e6, 5))
       
-      dl.prior <- (p - 1)/(a + prior.info[1]) + (q - 1)/(a - prior.info[1])
+      dl.prior <- (p - 1)/(a + kappa) - (q - 1)/(a - kappa)
       
     } else{
       
@@ -228,13 +227,11 @@ fit.dgev <- function(data.gg,
   # Usando "L-BFGS-B"
   if(method == "L-BFGS-B"){
     fit <- tryCatch(
-      optim(par = start, fn = nll.dgev, gr = grad.ll.dgev,
-            method = "L-BFGS-B", lower = lower, upper = upper,
-            hessian = TRUE,
-            durations = durations, y.id = y.id,
-            control = list(maxit = maxit)),
+      optim(par = start, fn = nll.dgev, gr = grad.ll.dgev, method = "L-BFGS-B", lower = lower, upper = upper, hessian = TRUE,
+            durations = durations, y.id = y.id, prior.info = prior.info,
+            control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8)),
       error = function(e){
-        warning("L-BFGS-B failed (", e$message, "). Otimizando com Nelder-Mead.")
+        warning("L-BFGS-B failed: ", e$message, ".\nOtimizando com Nelder-Mead.")
         return(NULL)
       }
     )
@@ -243,12 +240,11 @@ fit.dgev <- function(data.gg,
   }
   
   # Usando Nelder-Mead
-  fit <- optim(par = start, fn = nll.dgev, gr = grad.ll.dgev,
-               method = "Nelder-Mead",
-               durations = durations, y.id = y.id,
+  fit <- optim(par = start, fn = nll.dgev, gr = NULL, method = "Nelder-Mead", hessian = TRUE,
+               durations = durations, y.id = y.id, prior.info = prior.info,
                control = list(maxit = maxit))
   
-  if(fit$value == 1e6) warning("Não houve otimização na estação ", gg, "! Retornando parâmetros iniciais:\n", paste(round(start, 4), collapse = " "))
+  if(fit$value == 1e6) warning("\nErro na estação '", gg, "': não houve otimmização.\nRetornando parâmetros iniciais:\n", paste(round(start, 4), collapse = " "))
   
   return(fit)
   

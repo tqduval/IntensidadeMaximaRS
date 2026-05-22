@@ -1,3 +1,11 @@
+## Motivação (mantra)
+A ideia por trás de investigar o ajuste incluindo informação adicional está na realidade do nosso conjunto de estações: são muito curtas. Realizando um experimento bootstrap m-de-n, podemos entender melhor a influência de séries longas na estimativa do parâmetro de forma com momentos-L. Pegamos uma série originalmente com 100 anos de dados que estimou $\hat\kappa_{LMOM} = -0.04$ e fazemos reamostragens de tamanho $M$, em que $M$ tem 15 anos neste exemplo. 
+
+![](figuras/m_of_n_bootstrap_kappa.png)
+
+Isso mostra o quão incertas estimativas podem ser para extremos quando temos poucos anos de dados. Com estratégias regionais como essa que estamos avaliando --- construir um modelo de distribuição *a priori* regional para o parâmetro de forma usando GLS --- estamos "*trocando espaço por tempo*" e buscando incorporar informação de outras formas.
+
+Então mesmo que na média, para os dados observados, o modelo de IDF com informação adicional não seja muito diferente do modelo clássico, a diferença que de fato estamos observados é nos extremos, onde o $\kappa$ mais influencia.
 ## Tarefas
 Otimização e verossimilhança:
 - [ ] Adicionar restrições para `a + kappa` dentro da função `nll.dgev()` seguindo a formulação em `aux_function.R` para a verossimilhança para uma única duração;
