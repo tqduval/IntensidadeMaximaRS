@@ -8,10 +8,16 @@ Isso mostra o quão incertas estimativas podem ser para extremos quando temos po
 Então mesmo que na média, para os dados observados, o modelo de IDF com informação adicional não seja muito diferente do modelo clássico, a diferença que de fato estamos observados é nos extremos, onde o $\kappa$ mais influencia.
 ## Tarefas
 Otimização e verossimilhança:
-- [ ] Adicionar restrições para `a + kappa` dentro da função `nll.dgev()` seguindo a formulação em `aux_function.R` para a verossimilhança para uma única duração;
+- [x] Adicionar restrições para `a + kappa` dentro da função `nll.dgev()` seguindo a formulação em `aux_function.R` para a verossimilhança para uma única duração;
 - [x] Adicionar distribuição *a priori* para $\kappa$ na função `nll.dgev()`;
 - [x] Afrouxar as restrições algumas estações não estão ajustando e retornam `fit$max == 1e6`;
 - [x] Parâmetro `theta` está retornando negativo para algumas estações;
+Testes realizados
+- Otimização **sem** distribuição *a priori* + `method = "Nelder-Mead`: OK
+- Otimização **sem** distribuição *a priori* + `method = "L-BFGS-B"`: OK
+- Otimização **com** distribuição *a priori* + `method = "Nelder-Mead"`: OK
+- Otimização **com** distribuição *a priori* + `method = "L-BFGS-B"`: OK
+- - - 
 ## Parametrização de Koutsoyiannis et al. (1998) e Ulrich et al. (2020)
 
 A base para a parametrização da relação IDF de Koutsoyannis está na forma generalizada proposta:

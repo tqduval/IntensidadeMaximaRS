@@ -5,7 +5,6 @@
 #' @param maxit maximum number of iterations for 'optim()'
 
 fit.dgev <- function(data.gg,
-                     prior.info = NULL,
                      cols = c("gauge_code", "year", "duration", "imax"),
                      method = c("Nelder-Mead", "L-BFGS-B"),
                      scale.inv = c("wide", "strict"),
@@ -18,14 +17,14 @@ fit.dgev <- function(data.gg,
   # Conferir argumentos
   if(!is.data.frame(data.gg)) stop("Argumento 'data.gg' deve ser 'tbl_df' e não ", class(data.gg))
   if(sum(is.element(cols, names(data.gg))) != length(cols)) stop("Colunas indicadas em 'cols' devem estar contidas em 'data.gg'\ncols: ", cols, "\nnames(data.gg): ", names(data.gg))
-  
+
   method <- match.arg(method, c("Nelder-Mead", "L-BFGS-B"))
   scale.inv <- match.arg(scale.inv, c("wide", "strict"))
   
   #### FUNÇÕES ----
   
   # Função de log-verossimilhança do modelo d-GEV
-  nll.dgev <- function(param, durations, y.id, prior.info){
+  nll.dgev <- function(param, durations, y.id){
     
     # Parâmetros iniciais
     xit <- param[1]    # posição: xi~
@@ -38,10 +37,10 @@ fit.dgev <- function(data.gg,
     D <- ncol(y.id)
     
     # Limites teóricos
-    if(any(durations + theta <= 0)) return(1e6 + abs(min(durations + theta))*1e4) # impedir offset negativo
-    if(theta < 0) return(1e6 + abs(theta)*1e4)    # impedir offset negativo
-    if(alpha0 <= 0) return(1e6 + abs(alpha0)*1e4) # impedir escala GEV nulo
-    if(H <= 0 | H > 1) return(1e6 + abs(H)*1e4)   # restrição invariância de escala
+    if(any(durations + theta <= 0)) return(1e6) # impedir offset negativo
+    if(theta < 0) return(1e6)                  # impedir offset negativo
+    if(alpha0 <= 0) return(1e6)                 # impedir escala GEV nulo
+    if(H <= 0 | H > 1) return(1e6)              # restrição invariância de escala
     
     # Calcular termos z.id = 1 - kappa*(y.id*(d + theta)^H)/alpha - xi~)
     # Função sweep() realiza uma operação nas linhas ou colunas de euma matriz
@@ -54,32 +53,11 @@ fit.dgev <- function(data.gg,
     z.id <- 1 - kappa*(aux - xit) # variável reduzida vetorizada
     
     # Conferir limites teóricos
-    # if(any(z.id <= 0)) return(1e8)
-    if(any(z.id <= 1e-6)) return(1e6 + abs(min(z.id))*1e4)
-    
-    # Definir priori log-beta caso tenha sido informada
-    if(!is.null(prior.info)){
-      
-      mu.kappa <- prior.info[1]
-      var.kappa <- prior.info[2]^2
-      
-      a <- 0.5
-      b <- mu.kappa+a
-      p <- b^2*(1-b)/var.kappa-b
-      q <- p*(1/b-1)
-      
-      if(a - abs(kappa) <= 1e-6) return(1e6) # impedir log(<0)
-      l.prior <- (p - 1)*log(a + kappa) + (q - 1)*log(a - kappa)
-      
-    } else{
-      
-      l.prior <- 0
-      
-    }
-    
+    if(any(z.id <= 0)) return(1e8)
+    # return(1e10)
     
     # Log-verossimilhança
-    nll <- -(-N*D*log(alpha0) + H*N*sum(log(durations + theta)) + (1/kappa - 1)*sum(log(z.id)) - sum(z.id^(1/kappa)) + l.prior)
+    nll <- -(-N*D*log(alpha0) + H*N*sum(log(durations + theta)) + (1/kappa - 1)*sum(log(z.id)) - sum(z.id^(1/kappa)))
     
     return(nll) # retornando negativo p/ "minimização"
     
@@ -94,37 +72,35 @@ fit.dgev <- function(data.gg,
       par <- lmom::pelgev(sample.lmom)
     })
     
-    # Expoente 'H' (scale) de invariância de escala
-    H <- switch(
+    # Expoente 'scale' de invariância de escala
+    scale <- switch(
       scale.inv,
       wide = {
         mom <- apply(y.id, 2, function(imax) mean(imax))
-        H <- -lm(log(mom) ~ log(durations))$coefficient[[2]]
+        scale <- -lm(log(mom) ~ log(durations))$coefficient[[2]]
       },
       strict = {
-        H.xi <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
-        H.alpha <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
-        H <- mean(H.xi, H.alpha)
+        scale.xi <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
+        scale.alpha <- -lm(log(par.d["alpha",]) ~ log(durations))$coefficient[[2]]
+        scale <- mean(scale.xi, scale.alpha)
       }
     )
     
-    if(H <= 1e-6 || H >= 1 - 1e-6) H <- 0.5
+    if(scale < 0) scale <- 0.5
     theta <- 0
     alpha <- par.d[2,1]                          # estimate for first duration
     xit <- par.d[1,1]/alpha                      # rescaled xi
-    alpha0 <- alpha*(durations[1] + theta)^H     # rescaled alpha
+    alpha0 <- alpha*(durations[1] + theta)^scale # rescaled alpha
     kappa <- mean(par.d[3,])                     # average kappa
-    # kappa <- ifelse(abs(kappa) >= 0.5, prior.info[1], kappa)
-    kappa <- min(0.5 - 1e-6, max(-0.5 + 1e-6, kappa))
     
-    names <- c("xit", "alpha0", "kappa", "H", "theta")
+    names <- c("xit", "alpha0", "kappa", "scale", "theta")
     
-    return(setNames(c(xit, alpha0, kappa, H, theta), names))
+    return(setNames(c(xit, alpha0, kappa, scale, theta), names))
     
   }
   
   # Função gradiente log-verossimilhança
-  grad.ll.dgev <- function(param, durations, y.id, prior.info){
+  grad.ll.dgev <- function(param, durations, y.id){
     
     # Parameters
     xit <- param[1]
@@ -163,28 +139,9 @@ fit.dgev <- function(data.gg,
     dl.dalpha0 <- -(N*D)/alpha0 + (1 - kappa)*sum(yA*z.inv/(alpha0^2)) - sum(z.pow*yA/(alpha0^2))
     
     # Forma (kappa)
-    if(!is.null(prior.info)){
-      
-      mu.kappa <- prior.info[1]
-      var.kappa <- prior.info[2]^2
-      
-      a <- 0.5
-      b <- mu.kappa+a
-      p <- b^2*(1-b)/var.kappa-b
-      q <- p*(1/b-1)
-      if(a - abs(kappa) <= 1e-6) return(rep(1e6, 5))
-      
-      dl.prior <- (p - 1)/(a + kappa) - (q - 1)/(a - kappa)
-      
-    } else{
-      
-      dl.prior <- 0
-      
-    }
-    
     term1 <- (1/kappa - 1)*B*z.inv + ln.z/(kappa^2)
     term2 <- (1/kappa)*((ln.z*z.pow.k)/kappa + B*z.pow)
-    dl.dkappa <- -sum(term1) + sum(term2) + dl.prior
+    dl.dkappa <- -sum(term1) + sum(term2)
     
     # Expoente de invariância de escala (H)
     ln.dt <- log(ds + theta)
@@ -217,8 +174,8 @@ fit.dgev <- function(data.gg,
     na.omit() %>% as.matrix()
   
   # Definir limites para L-BFGS-B
-  lower <- c(-Inf, 1e-6, ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6), 1e-6, 0)
-  upper <- c(Inf, Inf, ifelse(is.null(prior.info), -Inf, 0.5 - 1e-6), 1 - 1e-6, Inf)
+  lower <- c(-Inf, 1e-6, -Inf, 1e-6, 0)
+  upper <- c(Inf, Inf, Inf, 1 - 1e-6, Inf)
   
   # Parâmetros iniciais (chute)
   start <- start.dgev(y.id, durations, scale.inv)
@@ -227,24 +184,27 @@ fit.dgev <- function(data.gg,
   # Usando "L-BFGS-B"
   if(method == "L-BFGS-B"){
     fit <- tryCatch(
-      optim(par = start, fn = nll.dgev, gr = grad.ll.dgev, method = "L-BFGS-B", lower = lower, upper = upper, hessian = TRUE,
-            durations = durations, y.id = y.id, prior.info = prior.info,
-            control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8)),
+      optim(par = start, fn = nll.dgev, gr = grad.ll.dgev,
+            method = "L-BFGS-B", lower = lower, upper = upper,
+            hessian = TRUE,
+            durations = durations, y.id = y.id,
+            control = list(maxit = maxit)),
       error = function(e){
-        warning("L-BFGS-B failed: ", e$message, ".\nOtimizando com Nelder-Mead.")
+        warning("L-BFGS-B failed (", e$message, "). Otimizando com Nelder-Mead.")
         return(NULL)
       }
     )
-    
+  
     if(!is.null(fit) && fit$convergence == 0) return(fit)
   }
   
   # Usando Nelder-Mead
-  fit <- optim(par = start, fn = nll.dgev, gr = NULL, method = "Nelder-Mead", hessian = TRUE,
-               durations = durations, y.id = y.id, prior.info = prior.info,
+  fit <- optim(par = start, fn = nll.dgev, gr = grad.ll.dgev,
+               method = "Nelder-Mead",
+               durations = durations, y.id = y.id,
                control = list(maxit = maxit))
   
-  if(fit$value == 1e6) warning("\nErro na estação '", gg, "': não houve otimmização.\nRetornando parâmetros iniciais:\n", paste(round(start, 4), collapse = " "))
+  if(fit$value == 1e6) warning("Não houve otimização na estação ", gg, "! Retornando parâmetros iniciais:\n", paste(round(start, 4), collapse = " "))
   
   return(fit)
   
