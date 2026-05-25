@@ -71,12 +71,6 @@ teste.nprior <- pbapply::pblapply(ls.data, fit.dgev, cols = names(data), method 
 teste.wprior <- pbapply::pblapply(ls.data, fit.dgev, prior.info = c(0.0178, 0.0627), cols = names(data), method = "Nelder-Mead", scale.inv = "wide")
 teste.wprior <- pbapply::pblapply(ls.data, fit.dgev, prior.info = c(0.0178, 0.0627), cols = names(data), method = "L-BFGS-B", scale.inv = "wide")
 
-teste.nprior <- pbapply::pblapply(ls.data, function(data.gg){
-  
-  
-  
-})
-
 par.nprior.gg <- teste.nprior[[gg]]$par %>% print()
 par.wprior.gg <- teste.wprior[[gg]]$par %>% print()
 
@@ -98,6 +92,7 @@ fit <- teste.wprior[[gg]]
 
 
 data.gg <- data[data$gauge_code == gg,]
+cols <- names(data.gg)
 y.id.gg <- data.gg %>% 
   pivot_wider(names_from = cols[3],
               values_from = cols[4],
@@ -106,6 +101,16 @@ y.id.gg <- data.gg %>%
   select(-cols[1:2]) %>% 
   na.omit() %>% 
   as.matrix()
+
+# Momentos
+lratios <- apply(y.id.gg, 2, function(ams){
+  s.lmom <- lmom::samlmu(ams)
+  t2 <- s.lmom[[2]]/s.lmom[[1]] # L-CV
+  t3 <- s.lmom[[3]]             # L-SK
+  t4 <- s.lmom[[4]]             # L-KT
+  return(c(lcv = t2, lsk = t3, lkt = t4))
+})
+
 
 # Posiçao de plotagem de Gringorten
 freq.obs <- apply(y.id.gg, 2, function(ams){

@@ -46,7 +46,7 @@ fit.dgev <- function(data.gg,
     if(any(durations + theta <= 0)) return(1e6 + abs(min(durations + theta))*1e4) # impedir offset negativo
     if(theta < 0) return(1e6 + abs(theta)*1e4)    # impedir offset negativo
     if(alpha0 <= 0) return(1e6 + abs(alpha0)*1e4) # impedir escala GEV nulo
-    if(H <= 0 | H > 1) return(1e6 + abs(H)*1e4)   # restrição invariância de escala
+    if(H < 1e-6 || H > 1 - 1e-6) return(1e6 + abs(H)*1e4)  # restrição invariância de escala
     
     # Calcular termos z.id = 1 - kappa*(y.id*(d + theta)^H)/alpha - xi~)
     # Função sweep() realiza uma operação nas linhas ou colunas de euma matriz
@@ -114,7 +114,7 @@ fit.dgev <- function(data.gg,
       }
     )
     
-    if(H <= 1e-6 || H >= 1 - 1e-6) H <- 0.5
+    if(H < 1e-6 || H > 1 - 1e-6) H <- 0.5
     theta <- 0
     alpha <- par.d[2,1]                          # estimate for first duration
     xit <- par.d[1,1]/alpha                      # rescaled xi
@@ -143,7 +143,7 @@ fit.dgev <- function(data.gg,
     N <- nrow(y.id)
     D <- ncol(y.id)
     
-    if(any(ds + theta <= 0) || alpha0 <= 0 || H <= 0 || H > 1){
+    if(any(ds + theta <= 0) || alpha0 <= 0 || H < 0 || H > 1 - 1e-6){
       return(rep(1e6, 5))
     }
     
