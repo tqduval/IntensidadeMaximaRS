@@ -29,7 +29,9 @@ set_theme(theme_minimal() +
 df.imax <- arrow::read_parquet("base/gerados/df_imax.pqt")
 
 data <- df.imax %>% 
-  filter(na_prct_yr <= 0.2, na_prct_mon <= 0.1, between(d, 1, 24)) %>% 
+  filter(na_prct_yr <= 0.2,
+         # na_prct_mon <= 0.1,
+         between(d, 1, 24)) %>% 
   group_by(gauge_code) %>% 
   filter(n_distinct(d) >= 3, n_distinct(wateryear) >= 8) %>% 
   ungroup() %>% 

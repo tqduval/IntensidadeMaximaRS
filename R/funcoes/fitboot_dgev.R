@@ -73,8 +73,6 @@ fitboot.dgev <- function(data, prior.info = NULL,
   
   #### CÁLCULOS ----
   
-  gg.names <- names(data)
-  
   # Rodar para cada estação
   message(paste0(rep("_", getOption("width")*0.5), collapse = ""), "\n")
   message("Ajustando d-GEV, estimando quantis e realizando simulações bootstrap.")

@@ -36,14 +36,14 @@ df.imax <- arrow::read_parquet("base/gerados/df_imax.pqt")
 
 # Aplicar critérios de qualidade
 na.yr <- 0.2
-na.mon <- 0.1
+# na.mon <- 0.1
 min.durations <- 3
 d.interval <- c(1, 24)
 min.yr <- 8
 
 data <- df.imax %>% 
   filter(na_prct_yr <= na.yr,
-         na_prct_mon <= na.mon,
+         # na_prct_mon <= na.mon,
          between(d, d.interval[1], d.interval[2])) %>% 
   group_by(gauge_code) %>% 
   filter(n_distinct(d) >= min.durations,
