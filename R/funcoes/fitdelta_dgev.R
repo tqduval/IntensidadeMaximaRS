@@ -19,13 +19,13 @@ fitdelta.dgev <- function(data, prior.info = NULL,
   
   #### CHECAGENS ----
   
-  if(!inherits(data, "list")) stop("'data' deve ser uma lista com data.frames e não: ", class(data), ".")
+  if(!inherits(data, "list")) stop("'data' deve ser uma lista com data.frames.")
   if(!length(prior.info) %in% c(0, 2)) stop("'prior.info' dever ser 'NULL' ou um vetor de comprimento 2.")
   
   #### FUNÇÕES ----
   
   # Ajustar d-GEV e estimar quantis
-  source("R/funcoes/fit_dgev.R")
+  source("R/funcoes/fdgev.R")
   
   # Função vetorizada p/ quantil
   q.dgev.vec <- function(param, d, p){
@@ -77,7 +77,7 @@ fitdelta.dgev <- function(data, prior.info = NULL,
   ls.res <- pbapply::pblapply(data, function(data.gg){
     
     gg <- unique(data.gg$gauge_code)
-    fit <- fit.dgev(data.gg, prior.info, names(data.gg), method, "wide")
+    fit <- fdgev(data.gg, prior.info, names(data.gg), method, "wide")
     par <- fit$par
     hes <- fit$hessian
     

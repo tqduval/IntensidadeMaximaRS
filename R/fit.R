@@ -25,7 +25,8 @@ set_theme(theme_minimal() +
 
 # Ajustar IDF d-GEV, estimar quantis e intervalos de confiança c/ bootstrap
 source("R/funcoes/fitboot_dgev.R") # faz tudo e estima ICs p/ todas as estações
-source("R/funcoes/fit_dgev.R")     # ajusta d-GEV p/ uma estação
+# source("R/funcoes/fitdelta_dgev.R") # faz tudo e estima ICs p/ todas as estações
+source("R/funcoes/fdgev.R")     # ajusta d-GEV p/ uma estação
 source("R/funcoes/q_dgev.R")       # estima quantis p/ uma estação
 
 

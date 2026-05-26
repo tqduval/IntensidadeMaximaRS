@@ -25,13 +25,13 @@ fitboot.dgev <- function(data, prior.info = NULL,
   
   #### CHECAGENS ----
   
-  if(!inherits(data, "list")) stop("'data' deve ser uma lista com data.frames e não: ", class(data), ".")
+  if(!inherits(data, "list")) stop("'data' deve ser uma lista com data.frames.")
   if(!length(prior.info) %in% c(0, 2)) stop("'prior.info' dever ser 'NULL' ou um vetor de comprimento 2.")
   
   #### FUNÇÕES ----
   
   # Ajustar d-GEV e estimar quantis
-  source("R/funcoes/fit_dgev.R")
+  source("R/funcoes/fdgev.R")
   source("R/funcoes/q_dgev.R")
   
   # Criar amostras, ajustar e estimar quantis
@@ -54,7 +54,7 @@ fitboot.dgev <- function(data, prior.info = NULL,
     
     # Ajustar d-GEV
     fit <- tryCatch(
-      fit.dgev(data.gg.resample, prior.info, names(data.gg), method, scale.inv, maxit),
+      fdgev(data.gg.resample, prior.info, names(data.gg), method, scale.inv, maxit),
       error = function(e){
         warning("Erro na estação ", gg, ":\n", e)
         NULL
