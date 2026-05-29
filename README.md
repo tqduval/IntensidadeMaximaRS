@@ -17,6 +17,9 @@ Testes realizados
 - Otimização **sem** distribuição *a priori* + `method = "L-BFGS-B"`: OK
 - Otimização **com** distribuição *a priori* + `method = "Nelder-Mead"`: OK
 - Otimização **com** distribuição *a priori* + `method = "L-BFGS-B"`: OK
+- - -
+## Alguns achados/hipóteses
+Intervalos de confiança com bootstrap pode não ser a melhor das opções para séries muito curtas (já é meio óbvio). Gera muita instabilidade no modelo e valores de parâmetro de forma e, consequentemente, quantis muito absurdos.
 - - - 
 ## Parametrização de Koutsoyiannis et al. (1998) e Ulrich et al. (2020)
 

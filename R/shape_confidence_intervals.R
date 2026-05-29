@@ -8,12 +8,13 @@
 # - dGEV: mle
 # - dGEV: rgmle
 
-set.seed(123)
+set.seed(1234)
 
 # PACOTES -----------------------------------------------------------------
 
 rm(list = ls()); invisible(gc())
-pacman::p_load(pacman, tidyverse, arrow, lmom)
+pacman::p_load(pacman, tidyverse, arrow, lmom,
+               future, future.apply)
 
 # Set theme
 suppressMessages(extrafont::loadfonts())
@@ -50,9 +51,12 @@ ls.data <- split(data, data$gauge_code)
 # CONSTRUÇÃO DA FUNÇÃO ----------------------------------------------------
 
 # gg <- "A801"
+# gg <- "A844"
 # data.gg <- data[data$gauge_code == gg,]
 
-shape.boot <- function(data, cols = names(df.imax), B, conf = 0.95){
+shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, conf = 0.95){
+  
+  if(any(names(data[[1]]) != cols)) stop("Nomes das colunas e 'cols' não corresponde aos nomes das colunas em 'data'")
   
   get.shape <- function(data.gg, cols = names(data.gg)){
     
@@ -158,8 +162,12 @@ shape.boot <- function(data, cols = names(df.imax), B, conf = 0.95){
       
     })
     
-    shape.dgev.mle <- fdgev(data.gg, cols = names(data.gg), method = "Nelder-Mead", scale.inv = "wide")[["par"]][["kappa"]]
-    shape.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "Nelder-Mead", "wide")[["par"]][["kappa"]]
+    # shape.dgev.mle <- fdgev(data.gg, cols = names(data.gg), method = "L-BFGS-B", scale.inv = "wide")[["par"]][["kappa"]]
+    shape.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "L-BFGS-B", "wide")[["par"]][["kappa"]]
+    fit.dgev.mle <- fdgev(data.gg, cols = names(data.gg), method = "L-BFGS-B", scale.inv = "wide")
+    shape.dgev.mle <- if(!is.null(fit.dgev.mle) && fit.dgev.mle$convergence == 0) fit.dgev.mle$par[["kappa"]] else NA
+    fit.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "L-BFGS-B", "wide")
+    shape.dgev.gmle <- if(!is.null(fit.dgev.rgmle) && fit.dgev.rgmle$convergence == 0) fit.dgev.rgmle$par[["kappa"]] else NA
     
     gg <- unique(data.gg$gauge_code)
     durations <- sort(unique(data.gg$d))
@@ -192,25 +200,21 @@ shape.boot <- function(data, cols = names(df.imax), B, conf = 0.95){
     gg <- unique(data.gg$gauge_code)
     data.gg.resample[[cols[2]]] <- data.gg.resample$id
     data.gg.resample$id <- NULL
-    shapes <- tryCatch(
-      get.shape(data.gg = data.gg.resample),
-      error = function(e){
-        warning("\nErro na estação ", gg, ": ", e)
-        NULL
-      }
-    )
-    
-    if(is.null(shapes)) return(NULL)
+    shapes <- tryCatch(get.shape(data.gg = data.gg.resample), error = function(e) NULL)
+    if(is.null(shapes) || any(is.na(shapes))) return(NULL)
     
     return(shapes)
     
   }
   
   ls.res <- pbapply::pblapply(data, function(data.gg){
+  # ls.res <- future.apply::future_lapply(data, function(data.gg){
     
     gg <- unique(data.gg$gauge_code)
     original <- get.shape(data.gg)
+    
     boot.shapes <- replicate(expr = rep.shapes(data.gg), simplify = FALSE, n = B)
+    # boot.shapes <- future.apply::future_replicate(expr = rep.shapes(data.gg), simplify = FALSE, n = B)
     boot.shapes <- boot.shapes[!sapply(boot.shapes, is.null)]
     boot.matrix <- do.call(rbind, boot.shapes)
     ci.shapes <- apply(boot.matrix, 2, quantile, probs = c((1 - conf)/2, 1 - (1 - conf)/2), na.rm = TRUE) # parâmetros
@@ -224,41 +228,53 @@ shape.boot <- function(data, cols = names(df.imax), B, conf = 0.95){
     
     return(out)
     
-  })
+  }) # fim 'ls.res'
+  # }, future.seed = TRUE) # fim 'ls.res'
   
   return(bind_rows(ls.res))
   
 }
 
-df.shape <- shape.boot(ls.data, B = 50)
+# future::plan(multisession, workers = availableCores() - 1)
 
+df.shape <- shape.boot(ls.data, B = 3000, cols = names(data))
+arrow::write_parquet(df.shape, "base/gerados/df_shape.pqt")
 
 # VISUALIZATION -----------------------------------------------------------
 
-n.years <- data %>% 
-  group_by(gauge_code, d) %>% 
-  reframe(n_years = n_distinct(wateryear)) %>% 
-  slice_head(n = 1, by = "gauge_code") %>% 
-  select(gauge_code, n_years)
-
-order <- df.shape %>% 
-  mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)]) %>% 
-  arrange(desc(n_years)) %>% 
-  mutate(label = paste(gauge_code, "|", n_years, "anos")) %>% 
-  pull(label, name = n_years)
-
-pos <- position_dodge(0.5)
-
-df.shape %>% 
-  filter(model == "dgev") %>% 
-  mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)],
-         label = paste(gauge_code, "|", n_years, "anos"),
-         label = factor(label)) %>% 
-  arrange(desc(n_years), d) %>% 
-  ggplot(aes(x = factor(d), y = kappa, color = method)) +
-  facet_wrap(~label, ncol = 4) +
-  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), linewidth = 0.2, position = pos) +
-  geom_point(size = 0.6, position = pos) +
-  scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
-  labs(x = "Duração [h]", y = "κ") +
-  theme(strip.text = element_text(hjust = 0))
+# n.years <- data %>% 
+#   group_by(gauge_code, d) %>% 
+#   reframe(n_years = n_distinct(wateryear)) %>% 
+#   slice_head(n = 1, by = "gauge_code") %>% 
+#   select(gauge_code, n_years)
+# 
+# gauges <- unique(data$gauge_code)
+# 
+# order <- df.shape %>% 
+#   mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)]) %>% 
+#   arrange(desc(n_years)) %>% 
+#   mutate(label = paste(gauge_code, "|", n_years, "anos")) %>% 
+#   pull(label, name = n_years)
+# 
+# pos <- position_dodge(0.5)
+# 
+# df.shape %>% 
+#   # filter(!gauge_code %in% c("431020703A", "432250904A", "A839", "A844", "A812", "A802", "430350901A", "430460601A")) %>% 
+#   # filter(gauge_code %in% gauges[1:4]) %>%
+#   # filter(gauge_code == "A812") %>%
+#   mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)],
+#          label = paste(gauge_code, "|", n_years, "anos"),
+#          label = factor(label)) %>% 
+#   arrange(desc(n_years), d) %>% 
+#   ggplot(aes(x = factor(d), y = kappa, color = method)) +
+#   facet_wrap(~label, ncol = 4) +
+#   geom_rect(aes(xmin = 0, xmax = Inf, ymin = ci_lower, ymax = ci_upper, fill = method), . %>% filter(model == "dgev"),
+#             alpha = 0.05, color = "transparent") +
+#   geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), . %>% filter(model == "gev"),
+#                 linewidth = 0.2, position = pos, width = 0, alpha = 0.6) +
+#   geom_point(data = . %>% filter(model == "gev"), size = 1, position = pos) +
+#   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
+#   labs(x = "Duração [h]", y = "κ") +
+#   theme(strip.text = element_text(hjust = 0))
+# 
+# ggsave("figuras/kappa_bootstrap.png",  width = 20, height = 28, units = "cm", dpi = 300)

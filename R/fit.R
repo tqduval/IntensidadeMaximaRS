@@ -3,6 +3,7 @@
 
 # Limpar ambiente
 rm(list = ls()); invisible(gc())
+set.seed(1234)
 
 # Pacotes
 if(!require(pacman)) install.packages("pacman")
@@ -25,7 +26,7 @@ set_theme(theme_minimal() +
 
 # Ajustar IDF d-GEV, estimar quantis e intervalos de confiança c/ bootstrap
 source("R/funcoes/fitboot_dgev.R") # faz tudo e estima ICs p/ todas as estações
-# source("R/funcoes/fitdelta_dgev.R") # faz tudo e estima ICs p/ todas as estações
+source("R/funcoes/fitdelta_dgev.R") # faz tudo e estima ICs p/ todas as estações
 source("R/funcoes/fdgev.R")     # ajusta d-GEV p/ uma estação
 source("R/funcoes/q_dgev.R")       # estima quantis p/ uma estação
 
@@ -58,30 +59,64 @@ ls.data <- split(data, data$gauge_code)
 
 # Argumentos
 prior.info <- c(0.0178, 0.0627)
+cols <- names(df.imax)
 durations <- c(1, 2, 4, 6, 8, 10, 12, 18, 24)
 return.period <- c(1.1, 1.5, 2, 5, 10, 20, 50, 100, 200, 500)
 method <- "L-BFGS-B"
 scale.inv <- "wide"
 B <- 3000
 
-# Ajustar d-GEV e estimar quantis e intervalos de confiança: com priori
-ls.fit <- fitboot.dgev(ls.data, prior.info, durations, return.period, cols = names(data),
-                       method, scale.inv, B, conf = 0.95, maxit = 1e8)
 
-df.par <- bind_rows(lapply(ls.fit, `[[`, "par"))
-df.idf <- bind_rows(lapply(ls.fit, `[[`, "idf"))
+# Ajustar ambas ao mesmo tempo
+source("R/funcoes/fit_dgev.R")
 
-saveRDS(ls.fit, "base/gerados/ls_fit.rds")
-arrow::write_parquet(df.par, "base/gerados/resultados_com_priori/df_par.pqt")
-arrow::write_parquet(df.idf, "base/gerados/resultados_com_priori/df_idf.pqt")
+# Possibilidades
+prior <- list(NULL, prior.info)
+ci <- c("delta", "bootstrap")
+# combinacoes <- expand.grid(prior = prior, ci_type = ci)
+combinacoes <- list(
+  list(prior = NULL, ci_type = "delta"),
+  list(prior = NULL, ci_type = "bootstrap"),
+  list(prior = prior.info, ci_type = "delta"),
+  list(prior = prior.info, ci_type = "bootstrap")
+)
 
-# Ajustar d-GEV e estimar quantis e intervalos de confiança: sem priori
-ls.fit <- fitboot.dgev(ls.data, prior.info = NULL, durations, return.period, cols = names(data),
-                       method, scale.inv, B, conf = 0.95, maxit = 1e8)
+ls.fit <- purrr::map(combinacoes, function(comb){
+  fit <- fit.dgev(data = ls.data,
+                  prior.info = comb$prior,
+                  durations = durations,
+                  return.period = return.period,
+                  cols = cols,
+                  method = method,
+                  scale.inv = scale.inv,
+                  which.ci = comb$ci_type,
+                  B = B,
+                  maxit = 1e8)
+})
 
-df.par <- bind_rows(lapply(ls.fit, `[[`, "par"))
-df.idf <- bind_rows(lapply(ls.fit, `[[`, "idf"))
+df.par <- bind_rows(lapply(ls.fit, `[[`, "parameters"))
+df.idf <- bind_rows(lapply(ls.fit, `[[`, "quantiles"))
+arrow::write_parquet(df.par, "base/gerados/df_par.pqt")
+arrow::write_parquet(df.idf, "base/gerados/df_idf.pqt")
 
-saveRDS(ls.fit, "base/gerados/resultados_sem_priori/ls_fit.rds")
-arrow::write_parquet(df.par, "base/gerados/resultados_sem_priori/df_par.pqt")
-arrow::write_parquet(df.idf, "base/gerados/resultados_sem_priori/df_idf.pqt")
+# # Ajustar d-GEV e estimar quantis e intervalos de confiança: com priori
+# ls.fit <- fitboot.dgev(ls.data, prior.info, durations, return.period, cols = names(data),
+#                        method, scale.inv, B, conf = 0.95, maxit = 1e8)
+# 
+# df.par <- bind_rows(lapply(ls.fit, `[[`, "par"))
+# df.idf <- bind_rows(lapply(ls.fit, `[[`, "idf"))
+# 
+# saveRDS(ls.fit, "base/gerados/ls_fit.rds")
+# arrow::write_parquet(df.par, "base/gerados/resultados_com_priori/df_par.pqt")
+# arrow::write_parquet(df.idf, "base/gerados/resultados_com_priori/df_idf.pqt")
+# 
+# # Ajustar d-GEV e estimar quantis e intervalos de confiança: sem priori
+# ls.fit <- fitboot.dgev(ls.data, prior.info = NULL, durations, return.period, cols = names(data),
+#                        method, scale.inv, B, conf = 0.95, maxit = 1e8)
+# 
+# df.par <- bind_rows(lapply(ls.fit, `[[`, "par"))
+# df.idf <- bind_rows(lapply(ls.fit, `[[`, "idf"))
+# 
+# saveRDS(ls.fit, "base/gerados/resultados_sem_priori/ls_fit.rds")
+# arrow::write_parquet(df.par, "base/gerados/resultados_sem_priori/df_par.pqt")
+# arrow::write_parquet(df.idf, "base/gerados/resultados_sem_priori/df_idf.pqt")

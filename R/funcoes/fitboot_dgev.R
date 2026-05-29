@@ -87,7 +87,8 @@ fitboot.dgev <- function(data, prior.info = NULL,
     
     # Parâmetros e quantis da série original
     gg <- unique(data.gg[[cols[1]]])
-    fit <- fit.dgev(data.gg, prior.info, names(data.gg), method, scale.inv, maxit) # ajustar d-GEV
+    fit <- fdgev(data.gg, prior.info, names(data.gg), method, scale.inv, maxit) # ajustar d-GEV
+    # fit <- fit.dgev(data.gg, prior.info, names(data.gg), method, scale.inv, maxit) # ajustar d-GEV
     par <- fit$par                                         # parâmetros originais
     idf.aux <- q.dgev(fit, durations, return.period)       # matrix com quantis
     idf <- bind_cols(gauge_code = gg, idf.aux) %>%         # data.frame com quantis, d e tempo de retorno
@@ -130,8 +131,15 @@ fitboot.dgev <- function(data, prior.info = NULL,
       rename(ci_lower = `2.5%`, ci_upper = `97.5%`)
     
     # Organizar saídas
-    parameters <- bind_cols(gauge_code = gg, par = par, ci.par) %>% select(gauge_code, parname, par, ci_lower, ci_upper)
-    quantiles <- idf %>% left_join(ci.q, by = c("id")) %>% select(-id)
+    parameters <- bind_cols(
+      gauge_code = gg, par = unname(par), ci.par, ci_type = "bootstrap",
+      prior = ifelse(is.null(prior.info), FALSE, TRUE)) %>% 
+      select(gauge_code, parname, par, ci_lower, ci_upper, ci_type, prior)
+    
+    quantiles <- idf %>% 
+      mutate(ci_type = "bootstrap", 
+             prior = ifelse(is.null(prior.info), FALSE, TRUE)) %>% 
+      left_join(ci.q, by = c("id")) %>% select(-id)
     
     out <- list(par = parameters,
                 idf = quantiles,

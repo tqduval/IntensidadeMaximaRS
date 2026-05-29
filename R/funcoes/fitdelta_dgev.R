@@ -109,8 +109,12 @@ fitdelta.dgev <- function(data, prior.info = NULL,
       
     }) # fim 'ls.ci.q'
     
-    parameters <- bind_cols(gauge_code = gg, parname = names(par), par = par, ci.par)
-    quantiles <- bind_cols(gauge_code = gg, bind_rows(ls.ci.q)) %>% arrange(d, return_period)
+    parameters <- bind_cols(
+      gauge_code = gg, parname = names(par), par = par, ci.par, ci_type = "delta",
+      prior = ifelse(is.null(prior.info), FALSE, TRUE))
+    
+    quantiles <- bind_cols(gauge_code = gg, bind_rows(ls.ci.q), ci_type = "delta", 
+                           prior = ifelse(is.null(prior.info), FALSE, TRUE)) %>% arrange(d, return_period)
     
     out <- list(par = parameters,
                 idf = quantiles)

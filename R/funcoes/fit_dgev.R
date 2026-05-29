@@ -33,20 +33,3 @@ fit.dgev <- function(data, prior.info = NULL,
               quantiles = bind_rows(lapply(ls.fit, `[[`, "idf"))))
   
 }
-
-prior.info <- c(0.0178, 0.0627)
-durations <- c(1, 2, 4, 6, 8, 10, 12, 18, 24)
-return.period <- c(1.1, 1.5, 2, 5, 10, 20, 50, 100, 200, 500)
-method <- "L-BFGS-B"
-scale.inv <- "wide"
-B <- 3000
-
-teste <- fit.dgev(data = ls.data[1:5],
-                  prior.info = prior.info, 
-                  durations = durations, 
-                  return.period = return.period,
-                  cols = names(ls.data[[1]]), 
-                  method = method, 
-                  scale.inv = scale.inv,
-                  which.ci = "bootstrap",
-                  B = 3000)
