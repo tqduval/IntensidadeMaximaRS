@@ -1,0 +1,1 @@
+{"rule":"VERB_COMMA_CONJUNCTION","sentence":"^\\QPara \\E(?:Dummy|Ina|Jimmy-|Dummy-|Maniquí-|Maniquíes-|Dummy\\+|Dummy's\\+)[0-9]+\\Q por exemplo, se temos\\E$"}

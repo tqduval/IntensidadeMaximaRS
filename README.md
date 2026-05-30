@@ -7,6 +7,7 @@ Isso mostra o quão incertas estimativas podem ser para extremos quando temos po
 
 Então mesmo que na média, para os dados observados, o modelo de IDF com informação adicional não seja muito diferente do modelo clássico, a diferença que de fato estamos observados é nos extremos, onde o $\kappa$ mais influencia.
 ## Tarefas
+- [ ] Figura comparação redução incerteza com priori regional.
 Otimização e verossimilhança:
 - [x] Adicionar restrições para `a + kappa` dentro da função `nll.dgev()` seguindo a formulação em `aux_function.R` para a verossimilhança para uma única duração;
 - [x] Adicionar distribuição *a priori* para $\kappa$ na função `nll.dgev()`;
@@ -119,3 +120,18 @@ Podemos remover o denominador, pois este não depende de $\kappa$ e não influen
 $$
 \frac{\partial\log[\pi(\kappa)]}{\partial\kappa} = \frac{p-1}{0.50 + \kappa} + \frac{q-1}{0.50 - \kappa}
 $$
+
+- - -
+
+## Investigando o '*profile likelihood*': método do perfil de verossimilhança
+A motivação está em dois fatores: instabilidade no método Bootstrap com séries muito curtas (Efron e outros autores recomendam mais de 30 anos pelo menos); e intervalos possivelmente muito confiantes com o método Delta.
+
+Seguindo Coles (2001, *An introduction to statistical modeling of extreme values*), a avaliação numérica do perfil de verossimilhança é simples. Para cada um dos parâmetros de interesse --- no nosso caso $\tilde\xi$, $\alpha_0$, $\kappa$, $H$ e $\theta$ --- precisamos apenas fixar cada parâmetro por vez e maximizar a função log-verossimilhança com relação aos demais parâmetros. Esse processo é repetido ao longo de um intervalo de parâmetros. Para $\tilde\xi$ por exemplo, definimos que $\tilde\xi = \tilde\xi_0$, maximizamos a log-verossimilhança com respeito à $\alpha_0$, $\kappa$, $H$ e $\theta$ e repetimos o processo para diferentes valores de $\tilde\xi_0$.
+
+A definição de Coles (2001) é a seguinte. Define-se a função de log-verossimilhança como $l(\theta_i, \theta_{-i})$, sendo $\theta_{-i}$ os demais parâmetros que não são $\theta_i$. Assim, o **perfil de verossimilhança** de $\theta_i$ é dado por:
+
+$$
+l_p(\theta_i) = \underset{\theta_{-i}}{\max} l(\theta_i,\theta_{-i}).
+$$
+
+Isso pode ser entendido como o perfil da função log-verossimilhança ao longo do eixo de $\theta_i$.

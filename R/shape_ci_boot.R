@@ -124,7 +124,7 @@ shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, con
       
       # Usando Nelder-Mead
       fit <- tryCatch({
-        fit.obj <- optim(par = param0, fn = nll.gev, method = "Nelder-Mead", hessian = TRUE, y = y, prior.info = prior.info) 
+        fit.obj <- optim(par = param0, fn = nll.gev, method = "Nelder-Mead", hessian = TRUE, y = y, prior.info = prior.info, maxit) 
       },
       error = function(e){
         warning("Erro ao maximizar a minimizar 'nll.gev(): ", e)
@@ -235,46 +235,47 @@ shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, con
   
 }
 
-# future::plan(multisession, workers = availableCores() - 1)
-
 df.shape <- shape.boot(ls.data, B = 3000, cols = names(data))
 arrow::write_parquet(df.shape, "base/gerados/df_shape.pqt")
 
+
 # VISUALIZATION -----------------------------------------------------------
 
-# n.years <- data %>% 
-#   group_by(gauge_code, d) %>% 
-#   reframe(n_years = n_distinct(wateryear)) %>% 
-#   slice_head(n = 1, by = "gauge_code") %>% 
-#   select(gauge_code, n_years)
-# 
-# gauges <- unique(data$gauge_code)
-# 
-# order <- df.shape %>% 
-#   mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)]) %>% 
-#   arrange(desc(n_years)) %>% 
-#   mutate(label = paste(gauge_code, "|", n_years, "anos")) %>% 
-#   pull(label, name = n_years)
-# 
-# pos <- position_dodge(0.5)
-# 
-# df.shape %>% 
-#   # filter(!gauge_code %in% c("431020703A", "432250904A", "A839", "A844", "A812", "A802", "430350901A", "430460601A")) %>% 
-#   # filter(gauge_code %in% gauges[1:4]) %>%
-#   # filter(gauge_code == "A812") %>%
-#   mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)],
-#          label = paste(gauge_code, "|", n_years, "anos"),
-#          label = factor(label)) %>% 
-#   arrange(desc(n_years), d) %>% 
-#   ggplot(aes(x = factor(d), y = kappa, color = method)) +
-#   facet_wrap(~label, ncol = 4) +
-#   geom_rect(aes(xmin = 0, xmax = Inf, ymin = ci_lower, ymax = ci_upper, fill = method), . %>% filter(model == "dgev"),
-#             alpha = 0.05, color = "transparent") +
-#   geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), . %>% filter(model == "gev"),
-#                 linewidth = 0.2, position = pos, width = 0, alpha = 0.6) +
-#   geom_point(data = . %>% filter(model == "gev"), size = 1, position = pos) +
-#   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
-#   labs(x = "Duração [h]", y = "κ") +
-#   theme(strip.text = element_text(hjust = 0))
-# 
-# ggsave("figuras/kappa_bootstrap.png",  width = 20, height = 28, units = "cm", dpi = 300)
+df.shape <- arrow::read_parquet("base/gerados/df_shapes_boot.pqt")
+
+n.years <- data %>%
+  group_by(gauge_code, d) %>%
+  reframe(n_years = n_distinct(wateryear)) %>%
+  slice_head(n = 1, by = "gauge_code") %>%
+  select(gauge_code, n_years)
+
+gauges <- unique(data$gauge_code)
+
+order <- df.shape %>%
+  mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)]) %>%
+  arrange(desc(n_years)) %>%
+  mutate(label = paste(gauge_code, "|", n_years, "anos")) %>%
+  pull(label, name = n_years)
+
+pos <- position_dodge(0.5)
+
+df.shape %>%
+  # filter(!gauge_code %in% c("431020703A", "432250904A", "A839", "A844", "A812", "A802", "430350901A", "430460601A")) %>%
+  # filter(gauge_code %in% gauges[1:4]) %>%
+  # filter(gauge_code == "A812") %>%
+  mutate(n_years = n.years$n_years[match(gauge_code, n.years$gauge_code)],
+         label = paste(gauge_code, "|", n_years, "anos"),
+         label = factor(label)) %>%
+  arrange(desc(n_years), d) %>%
+  ggplot(aes(x = factor(d), y = kappa, color = method)) +
+  facet_wrap(~label, ncol = 4) +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = ci_lower, ymax = ci_upper, fill = method), . %>% filter(model == "dgev"),
+            alpha = 0.05, color = "transparent") +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), . %>% filter(model == "gev"),
+                linewidth = 0.2, position = pos, width = 0, alpha = 0.6) +
+  geom_point(data = . %>% filter(model == "gev"), size = 1, position = pos) +
+  scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
+  labs(x = "Duração [h]", y = "κ") +
+  theme(strip.text = element_text(hjust = 0))
+
+ggsave("figuras/kappa_bootstrap.png",  width = 20, height = 28, units = "cm", dpi = 300)
