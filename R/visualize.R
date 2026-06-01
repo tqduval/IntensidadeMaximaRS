@@ -325,9 +325,15 @@ ggplot() +
 
 ## RESÍDUOS ---------------------------------------------------------------
 
+# FAZER: pode ser interessante comparar os resultados com e sem priori regional
+# usando o EQM. Selecionar durações de referência 1, 6, 12, 24 h e calcular o EQM
+# Fazer um plot p/ cada duração e plotar o EQM (eixo-y) de toda as estações (eixo-x)
+# ordenadas por tamanho das séries.
+
 # Como o valor das estimativas de kappa em si não mudam com a combinação de método
 # tanto faz apresentar com um específico os resultados da análise de resíduo
 # Calcular quantis para os tempos de recorrência observados
+
 df.par.comp <- df.par %>%
   filter(prior == combinacao[[1]], ci_type == combinacao[[2]]) %>%
   select(gauge_code, par) %>%
@@ -349,29 +355,30 @@ df.residuals <- df.fq.obs %>%
   rowwise() %>%
   mutate(
     q = get.q(unlist(par), d, 1 - p),
-    eqm = (q - imax)^2,
-    rel_var = (imax - q)^2 / imax
+    residuo = q - imax, # calcular resíduo p/ ilustrar positivos e negativos
+    eqm = residuo^2,
   ) %>%
   ungroup() %>%
   group_by(gauge_code, label, d, plot_pos) %>%
   reframe(
-    eqm = sum(eqm) / n(), # erro quadrático médio (Isim - Iobs)^2
+    eqm = sum(eqm) / n(), # erro quadrático médio (Isim - Iobs)^2, não pode ser comparado entre durações
     rel_bias = (mean(q) - mean(imax))^2 / mean(q), # viés relativo
-    rel_var = sum(rel_var) / (n() - 1) # nem ideia se iso ta certo ou não
+    rel_res = mean(residuo) / (mean(q)) * 100, # resíduo relativo
+    rel_var = sum(residuo^2) / (n() - 1) # nem ideia se iso ta certo ou não
   ) %>%
   print
 
 ### Histogramas de média e variância dos resíduos -------------------------
 
-# Média dos resíduos - Viés (BIAS)
+# Média dos resíduos relativo
 plot.rel.bias <- df.residuals %>%
   pivot_longer(
     # cols = starts_with("rel_"),
-    cols = c(eqm, rel_bias, rel_var),
+    cols = c(eqm, rel_bias, rel_res, rel_var),
     names_to = "statistic"
   ) %>%
-  # filter(statistic == "rel_bias") %>%
-  filter(statistic == "eqm") %>%
+  filter(statistic == "rel_res") %>%
+  # filter(statistic == "eqm") %>%
   ggplot(aes(x = d, y = value, fill = statistic)) +
   facet_wrap(~ factor(label, levels = order), ncol = 4, scale = "free_y") +
   geom_col(
@@ -382,8 +389,7 @@ plot.rel.bias <- df.residuals %>%
     fill = "grey20"
   ) +
   scale_x_continuous(breaks = c(1, 6, 12, 18, 24)) +
-  # labs(x = "Durações [h]", y = "Viés relativo médio [%]") +
-  labs(x = "Durações [h]", y = "EQM") +
+  labs(x = "Durações [h]", y = "Resíduo relativo [%]") +
   theme(
     legend.position = c(1, 1.1),
     legend.justification = c(1, 1),
@@ -395,8 +401,10 @@ plot.rel.bias <- df.residuals %>%
 plot.rel.bias
 
 ggsave(
-  # "figuras/resultados/metricas/residuos_rel_bias.png",
-  "figuras/resultados/metricas/eqm.png",
+  paste0(
+    "figuras/resultados/metricas/residuo_relativo_",
+    ifelse(isTRUE(combinacao[[1]]), "_wpriori.png", "_npriori.png")
+  ),
   plot.rel.bias,
   width = 15,
   height = 22,
@@ -421,12 +429,6 @@ plot.rel.bias <- df.residuals %>%
     linewidth = 0.2,
     fill = "grey80"
   ) +
-  scale_fill_manual(
-    name = "",
-    values = c("mean" = "grey20", "var" = "grey80"),
-    labels = c("mean" = "Média", "var" = "Variância")
-  ) +
-
   labs(x = "Durações [h]", y = "Variância relativa média dos resíduos") +
   theme(
     legend.position = c(1, 1.1),

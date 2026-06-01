@@ -135,3 +135,84 @@ l_p(\theta_i) = \underset{\theta_{-i}}{\max} l(\theta_i,\theta_{-i}).
 $$
 
 Isso pode ser entendido como o perfil da função log-verossimilhança ao longo do eixo de $\theta_i$.
+
+- - -
+
+## Funções gradiente para `nll.gev()`
+Definimos os termos:
+
+$$
+z_i = 1 - \frac{\kappa}{\alpha} (y_i - \xi), \quad 
+\texttt{term1} = \left(\frac{1}{\kappa} - 1\right)\ln(z_i), \quad
+\texttt{term2} = z_i^{1/\kappa}
+$$
+
+Podemos definir a função negativa de log-verossimilhança da GEV como:
+
+$$
+nll = -\left\{-N\ln(\alpha) + \sum(\texttt{term1} - \texttt{term2}) + \ln[\pi(\kappa)]\right\}
+$$
+
+Para facilitar, derivamos primeiro os termos comuns $z_i$, `term1`e `term2`com relação aos parâmetros:
+
+Derivadas com relação a $z_i$:
+
+$$
+\frac{\partial z_i}{\partial\xi} = \frac{\kappa}{\alpha},
+$$
+
+$$
+\frac{\partial z_i}{\partial\alpha} = \frac{\kappa}{\alpha^2}(y_i - \xi),
+$$
+
+$$
+\frac{\partial z_i}{\partial\kappa} = -\frac{y_i - \xi}{\alpha}
+$$
+
+Derivadas com relação a `term1`:
+
+$$
+\frac{\partial \texttt{term1}}{\partial\xi} = \left( \frac{1}{\kappa}-1 \right) \frac{1}{z_i} \frac{\partial z_i}{\partial\xi},
+$$
+
+$$
+\frac{\partial \texttt{term1}}{\partial\alpha} = \left(\frac{1}{\kappa} - 1\right) \frac{1}{z_i}\frac{\partial z_i}{\partial\alpha}
+$$
+
+$$
+\frac{\partial \texttt{term1}}{\partial\kappa} = \left( \frac{1}{\kappa} -1 \right)\frac{1}{z_i}\frac{\partial z_i}{\partial\kappa} - \frac{1}{\kappa^2}\ln(z_i)
+$$
+
+Derivadas com relação a `term2`:
+
+$$
+\frac{\partial\texttt{term2}}{\partial\xi} = \frac{1}{\kappa}z_i^{1/\kappa-1}\frac{\partial z_i}{\partial\xi}
+$$
+
+$$
+\frac{\partial \texttt{term2}}{\partial\alpha} = \frac{1}{\kappa}z_i^{1/\kappa-1}\frac{\partial z_i}{\partial\alpha}
+$$
+
+$$
+\frac{\partial\texttt{term2}}{\partial\kappa} = z_i^{1/\kappa}\left[ \frac{1}{\kappa z_i}\frac{\partial z_i}{\partial\kappa} - \frac{\ln(z_i)}{\kappa^2} \right]
+$$
+
+A derivada da distribuição *a priori* $\pi(\kappa)$ com relação a $\kappa$ é:
+
+$$
+\frac{\partial \pi(\kappa)}{\partial\kappa} = \frac{p-1}{a+\kappa} - \frac{q - 1}{a-\kappa}
+$$
+
+Expressões finais:
+
+$$
+\frac{\partial nll}{\partial\xi} = - \sum_{i=1}^{N}\left[ \left(\frac{1}{\kappa}-1\right) \frac{1}{z_i} \frac{\partial z_i}{\partial\xi} - \frac{1}{\kappa} z_i^{1/\kappa-1} \frac{\partial z_i}{\partial\xi} \right]
+$$
+
+$$
+\frac{\partial nll}{\partial\alpha} = \frac{N}{\alpha} - \sum_{i=1}^{N}\left[ \left(\frac{1}{\kappa}-1\right) \frac{1}{z_i} \frac{\partial z_i}{\partial\alpha} - \frac{1}{\kappa} z_i^{1/\kappa-1} \frac{\partial z_i}{\partial\alpha} \right]
+$$
+
+$$
+\frac{\partial nll}{\partial\kappa} = - \sum_{i=1}^N\left\{ \left( \frac{1}{\kappa} - 1 \right) \frac{1}{z_i} \frac{\partial z_i}{\partial\kappa} - \frac{\ln(z_i)}{\kappa^2} - z^{1/\kappa}\left[ \frac{1}{\kappa z_i}\frac{\partial z_i}{\partial\kappa} - \frac{\ln(z_i)}{\kappa^2} \right] \right\} - \left( \frac{p-1}{a+\kappa} - \frac{q-1}{a-\kappa} \right)
+$$

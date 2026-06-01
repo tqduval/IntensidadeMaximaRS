@@ -14,8 +14,6 @@ invisible(gc())
 
 # PACOTES -----------------------------------------------------------------
 
-rm(list = ls())
-invisible(gc())
 pacman::p_load(pacman, tidyverse, arrow, lmom, future, future.apply)
 
 # Set theme
@@ -53,6 +51,12 @@ data <- df.imax %>%
   select(gauge_code, wateryear, d, imax)
 
 ls.data <- split(data, data$gauge_code)
+
+
+# FUNÇÃO -----------------------------------------------------------------
+
+# gg <- "A812"
+# data.gg <- data[data$gauge_code == gg, ]
 
 shape.delta <- function(
   data,
@@ -118,7 +122,7 @@ shape.delta <- function(
 
         # Fallbacks
         if (alpha <= 0) {
-          return(1e6)
+          return(1e6 + abs(alpha) * 1e4)
         }
         if (any(zi <= 1e-8)) {
           return(1e6 + abs(min(zi)) * 1e4)
@@ -132,17 +136,111 @@ shape.delta <- function(
         return(nll)
       }
 
+      # Função gradiente nll.gev()
+      grad.ll.gev <- function(param, y, prior.info) {
+        xi <- param[1]
+        alpha <- param[2]
+        kappa <- param[3]
+        N <- length(y)
+
+        if (alpha <= 1e-8) {
+          return(c(0, 1e6, 0)) # corrigir alpha (param[3]) e não os demais
+        }
+
+        # Avaliar se há distribuição a priori
+        if (!is.null(prior.info)) {
+          mu.kappa <- prior.info[1]
+          var.kappa <- prior.info[2]^2
+
+          a <- 0.5
+          b <- mu.kappa + a
+          p <- b^2 * (1 - b) / var.kappa - b
+          q <- p * (1 / b - 1)
+
+          if (a - abs(kappa) <= 1e-6) {
+            return(rep(1e6, 3))
+          }
+
+          dl.prior <- (p - 1) / (a + kappa) - (q - 1) / (a - kappa)
+        } else {
+          dl.prior <- 0
+        }
+
+        # Termos simplificadores
+        zi <- 1 - kappa / alpha * (y - xi)
+        if (any(zi <= 1e-8)) {
+          return(rep(1e6, 3))
+        }
+        inv.z <- 1 / zi
+        z.inv.k <- zi^(1 / kappa)
+        z.inv.km1 <- zi^(1 / kappa - 1)
+        ln.z <- log(zi)
+
+        # Derivadas em relação a zi
+        dz.dxi <- kappa / alpha
+        dz.dalpha <- kappa / alpha^2 * (y - xi)
+        dz.dkappa <- -(y - xi) / alpha
+
+        # Gradientes
+        grad.xi <- -sum(
+          (1 / kappa - 1) * inv.z * dz.dxi - 1 / kappa * z.inv.km1 * dz.dxi
+        )
+        grad.alpha <- N /
+          alpha -
+          sum(
+            (1 / kappa - 1) *
+              inv.z *
+              dz.dalpha -
+              1 / kappa * z.inv.km1 * dz.dalpha
+          )
+        grad.kappa <- -sum(
+          (1 / kappa - 1) *
+            inv.z *
+            dz.dkappa -
+            ln.z / kappa^2 -
+            z.inv.k * (1 / kappa * inv.z * dz.dkappa - ln.z / kappa^2)
+        ) -
+          dl.prior
+
+        return(c(grad.xi, grad.alpha, grad.kappa))
+      } # fim 'grad.ll.gev()'
+
+      # Definir limites para L-BFGS-B
+      lower <- c(
+        -Inf,
+        1e-6,
+        ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6),
+        1e-6,
+        0
+      )
+      upper <- c(
+        Inf,
+        Inf,
+        ifelse(is.null(prior.info), -Inf, 0.5 - 1e-6),
+        1 - 1e-6,
+        Inf
+      )
+
       # Usando Nelder-Mead
       fit <- tryCatch(
         {
           fit.obj <- optim(
             par = param0,
             fn = nll.gev,
-            method = "Nelder-Mead",
+            method = "L-BFGS-B",
+            gr = grad.ll.gev,
+            lower = lower,
+            upper = upper,
             hessian = TRUE,
             y = y,
             prior.info = prior.info,
-            control = list(maxit = maxit)
+            control = list(
+              maxit = maxit,
+              factr = 1e10, # relaxa a tolerância da função
+              pgtol = 1e-4, # adiciona tolerância no gradiente
+              lmm = 20, # aumenta a memória da hessiana aproximada
+              # trace = 1     # acompanhar o progresso do ajuste
+            )
           )
         },
         error = function(e) {
@@ -157,7 +255,7 @@ shape.delta <- function(
     # Parâmetro de forma GEV + MLE
     res.gev.mle <- apply(yd.gg, 2, function(y) {
       start <- flmom(y)
-      fit <- fgev(start, y, maxit = maxit)
+      fit <- try(fgev(start, y, maxit = maxit))
       par <- fit$par
       hes <- fit$hessian
       cov.par <- try(solve(hes), silent = TRUE)
@@ -309,3 +407,9 @@ shape.delta <- function(
 
 df.shape <- shape.delta(ls.data, cols = names(data), conf = 0.95, maxit = 1e8)
 arrow::write_parquet(df.shape, "base/gerados/df_shapes_delta.pqt")
+
+df.shape %>%
+  rowwise() %>%
+  mutate(sd = round(sd(c(kappa, ci_lower, ci_upper)), 2)) %>%
+  filter(sd < 1e-4) %>%
+  print(n = 86)
