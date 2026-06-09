@@ -77,7 +77,6 @@ simulations <- pbapply::pblapply(gev.samples, function(y){
   
 })
 
-
 # mc.sims <- do.call(rbind, simulations)
 mc.sims <- bind_rows(simulations)
 
@@ -92,5 +91,3 @@ summary.invalid <- mc.sims %>%
   count(invalid_ci) %>% 
   mutate(prct = n/sum(n)*100) %>% 
   print()
-
-mc.sims <- do.call(rbind, simulations)
