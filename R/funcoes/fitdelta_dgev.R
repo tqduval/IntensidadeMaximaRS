@@ -17,17 +17,17 @@ fitdelta.dgev <- function(data, prior.info = NULL,
                           conf = 0.95,
                           maxit = 1e6){
   
-  #### CHECAGENS ----
+  #### CHECKINGS ----
   
   if(!inherits(data, "list")) stop("'data' deve ser uma lista com data.frames.")
   if(!length(prior.info) %in% c(0, 2)) stop("'prior.info' dever ser 'NULL' ou um vetor de comprimento 2.")
   
-  #### FUNÇÕES ----
+  #### FUNCTIONS ----
   
-  # Ajustar d-GEV e estimar quantis
+  # Fit and estimate quantiles
   source("R/funcoes/fdgev.R")
   
-  # Função vetorizada p/ quantil
+  # Vectorized quantile function
   q.dgev.vec <- function(param, d, p){
     
     xit <- param[1]; alpha0 <- param[2]; kappa <- param[3]; H <- param[4]; theta <- param[5]
@@ -61,23 +61,31 @@ fitdelta.dgev <- function(data, prior.info = NULL,
     
   }
   
-  #### CÁLCULOS ----
+  #### RUN ----
   
-  # Rodar para cada estação
-  message(paste0(rep("_", getOption("width")*0.5), collapse = ""), "\n")
-  message("Ajustando d-GEV, estimando quantis.")
-  message(">> Número de estações: ", length(data))
-  message(">> Otimizador: ", method)
-  message(">> Durações [h]: ", paste(durations, collapse = ", "))
-  message(">> Tempos de retorno [anos]: ", paste(return.period, collapse = ", "))
-  message(">> Nível de confiança para intervalo percentil com método delta: ", paste0(conf*100, "%"))
-  
+  # Messages
+  message("Fitting and estimating quantiles. Confidence intervals method: Delta (Wald)")
+  message(">> Number of gauges: ", length(data))
+  message(">> Optimizer method: ", method)
+  message(">> Durations [h]: ", paste(durations, collapse = ", "))
+  message(">> Return period [years]: ", paste(return.period, collapse = ", "))
+  message(">> Confidence level: ", paste0(conf*100, "%"))
+
   probs <- 1 - 1/return.period
   
   ls.res <- pbapply::pblapply(data, function(data.gg){
     
     gg <- unique(data.gg$gauge_code)
-    fit <- fdgev(data.gg, prior.info, names(data.gg), method, "wide")
+
+    y.id <- data.gg %>%                 # create a matrix year x d, filled with imax
+      pivot_wider(names_from = cols[3], # transformar durações em colunas
+                  values_from = cols[4],
+                  names_prefix = "d_") %>%
+      arrange(cols[2]) %>%
+      select(-cols[1:2]) %>%
+      na.omit() %>% as.matrix()
+
+    fit <- fdgev(y.id, prior.info, names(data.gg), method, "wide")
     par <- fit$par
     hes <- fit$hessian
     
@@ -120,8 +128,6 @@ fitdelta.dgev <- function(data, prior.info = NULL,
                 idf = quantiles)
     
   }) # fim 'ls.res'
-  
-  message(paste0(rep("_", getOption("width")*0.5), collapse = ""), "\n")
   
   return(ls.res)
   

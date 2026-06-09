@@ -50,9 +50,9 @@ ls.data <- split(data, data$gauge_code)
 
 # CONSTRUÇÃO DA FUNÇÃO ----------------------------------------------------
 
-# gg <- "A801"
+gg <- "A801"
 # gg <- "A844"
-# data.gg <- data[data$gauge_code == gg,]
+data.gg <- data[data$gauge_code == gg,]
 
 shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, conf = 0.95){
   
@@ -72,84 +72,26 @@ shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, con
     n.years <- nrow(yd.gg)
     
     # Funções
+    # L-momentos
     flmom <- function(ams){
       sample.lmom <- lmom::samlmu(ams)
       lmom::pelgev(sample.lmom)
     }
     
-    fgev <- function(param0, y, prior.info = NULL){
-      
-      nll.gev <- function(param0, y, prior.info){
-        
-        xi <- param0[1]
-        alpha <- param0[2]
-        kappa <- param0[3]
-        n <- length(y)
-        
-        if(!is.null(prior.info)){
-          
-          mu.kappa <- prior.info[1]
-          var.kappa <- prior.info[2]^2
-          
-          a <- 0.5
-          b <- mu.kappa+a
-          p <- b^2*(1-b)/var.kappa-b
-          q <- p*(1/b-1)
-          
-          if(a - abs(kappa) <= 1e-6) return(1e6 + abs(kappa)*1e4) # impedir log(<0)
-          # if(a - abs(kappa) <= 1e-6) return(1e6) # impedir log(<0)
-          l.prior <- (p - 1)*log(a + kappa) + (q - 1)*log(a - kappa)
-          
-        } else{
-          
-          l.prior <- 0
-          
-        }
-        
-        
-        zi <- 1 - kappa/alpha*(y - xi)
-        
-        # Fallbacks
-        if(alpha <= 0) return(1e6)
-        if(any(zi <= 1e-8)) return(1e6 + abs(min(zi))*1e4)
-        
-        # Negative log-likelihood
-        term1 <- (1/kappa - 1)*log(zi)
-        term2 <- zi^(1/kappa)
-        nll <- -(-n*log(alpha) + sum(term1 - term2) + l.prior)
-        
-        return(nll)
-        
-      }
-      
-      # Usando Nelder-Mead
-      fit <- tryCatch({
-        fit.obj <- optim(par = param0, fn = nll.gev, method = "Nelder-Mead", hessian = TRUE, y = y, prior.info = prior.info, maxit) 
-      },
-      error = function(e){
-        warning("Erro ao maximizar a minimizar 'nll.gev(): ", e)
-        return(NULL)
-      })
-      
-      return(fit)
-      
-    }
-    
+    # Máxima verossimmilhança
+    source("R/funcoes/fgev.R")
+   
     # Estimar parâmetros de forma
     shape.gev.lmom <- apply(yd.gg, 2, function(y){
-      
       par <- flmom(y)
       kappa <- unname(par["k"])
-      
     })
     
     shape.gev.mle <- apply(yd.gg, 2, function(y){
-      
       start <- flmom(y)
       fit <- fgev(start, y)
       par <- fit$par
       kappa <- par[[3]]
-      
     })
     
     shape.gev.rgmle <- apply(yd.gg, 2, function(y){
@@ -163,7 +105,7 @@ shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, con
     })
     
     # shape.dgev.mle <- fdgev(data.gg, cols = names(data.gg), method = "L-BFGS-B", scale.inv = "wide")[["par"]][["kappa"]]
-    shape.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "L-BFGS-B", "wide")[["par"]][["kappa"]]
+    # shape.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "L-BFGS-B", "wide")[["par"]][["kappa"]]
     fit.dgev.mle <- fdgev(data.gg, cols = names(data.gg), method = "L-BFGS-B", scale.inv = "wide")
     shape.dgev.mle <- if(!is.null(fit.dgev.mle) && fit.dgev.mle$convergence == 0) fit.dgev.mle$par[["kappa"]] else NA
     fit.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "L-BFGS-B", "wide")
@@ -235,7 +177,7 @@ shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, con
   
 }
 
-df.shape <- shape.boot(ls.data, B = 3000, cols = names(data))
+df.shape <- shape.boot(ls.data, B = 2000, cols = names(data))
 arrow::write_parquet(df.shape, "base/gerados/df_shape.pqt")
 
 

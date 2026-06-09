@@ -2,7 +2,7 @@
 # PACOTES -----------------------------------------------------------------
 
 # Limpar ambiente
-rm(list = ls()); invisible(gc())
+rm(list = ls()); invisible nn(gc())
 set.seed(1234)
 
 # Pacotes
@@ -25,10 +25,10 @@ set_theme(theme_minimal() +
 # FUNÇÕES -----------------------------------------------------------------
 
 # Ajustar IDF d-GEV, estimar quantis e intervalos de confiança c/ bootstrap
-source("R/funcoes/fitboot_dgev.R") # faz tudo e estima ICs p/ todas as estações
+source("R/funcoes/fitboot_dgev.R")  # faz tudo e estima ICs p/ todas as estações
 source("R/funcoes/fitdelta_dgev.R") # faz tudo e estima ICs p/ todas as estações
-source("R/funcoes/fdgev.R")     # ajusta d-GEV p/ uma estação
-source("R/funcoes/q_dgev.R")       # estima quantis p/ uma estação
+source("R/funcoes/fitboot_gev.R")   # faz tudo e estima ICs p/ todas as estações por duração
+source("R/funcoes/fit_dgev.R")      # chama internamente fitboot.dgev() e fitdelta.dgev()
 
 
 # LER DADOS ---------------------------------------------------------------
@@ -45,7 +45,6 @@ min.yr <- 8
 
 data <- df.imax %>% 
   filter(na_prct_yr <= na.yr,
-         # na_prct_mon <= na.mon,
          between(d, d.interval[1], d.interval[2])) %>% 
   group_by(gauge_code) %>% 
   filter(n_distinct(d) >= min.durations,
@@ -59,16 +58,15 @@ ls.data <- split(data, data$gauge_code)
 
 # Argumentos
 prior.info <- c(0.0178, 0.0627)
-cols <- names(df.imax)
+cols <- names(data)
 durations <- c(1, 2, 4, 6, 8, 10, 12, 18, 24)
 return.period <- c(1.1, 1.5, 2, 5, 10, 20, 50, 100, 200, 500)
 method <- "L-BFGS-B"
 scale.inv <- "wide"
-B <- 3000
+B <- 10000
 
 
-# Ajustar ambas ao mesmo tempo
-source("R/funcoes/fit_dgev.R")
+## ESTIMATIVA COM INVARIÂNCIA DE ESCALA ----------------------------------
 
 # Possibilidades
 prior <- list(NULL, prior.info)
@@ -81,7 +79,7 @@ combinacoes <- list(
   list(prior = prior.info, ci_type = "bootstrap")
 )
 
-ls.fit <- purrr::map(combinacoes, function(comb){
+ls.fit.d <- purrr::map(combinacoes, function(comb){
   fit <- fit.dgev(data = ls.data,
                   prior.info = comb$prior,
                   durations = durations,
@@ -94,29 +92,44 @@ ls.fit <- purrr::map(combinacoes, function(comb){
                   maxit = 1e8)
 })
 
-df.par <- bind_rows(lapply(ls.fit, `[[`, "parameters"))
-df.idf <- bind_rows(lapply(ls.fit, `[[`, "quantiles"))
+df.par <- bind_rows(lapply(ls.fit.d, `[[`, "parameters"))
+df.idf <- bind_rows(lapply(ls.fit.d, `[[`, "quantiles"))
 arrow::write_parquet(df.par, "base/gerados/df_par.pqt")
 arrow::write_parquet(df.idf, "base/gerados/df_idf.pqt")
 
-# # Ajustar d-GEV e estimar quantis e intervalos de confiança: com priori
-# ls.fit <- fitboot.dgev(ls.data, prior.info, durations, return.period, cols = names(data),
-#                        method, scale.inv, B, conf = 0.95, maxit = 1e8)
-# 
-# df.par <- bind_rows(lapply(ls.fit, `[[`, "par"))
-# df.idf <- bind_rows(lapply(ls.fit, `[[`, "idf"))
-# 
-# saveRDS(ls.fit, "base/gerados/ls_fit.rds")
-# arrow::write_parquet(df.par, "base/gerados/resultados_com_priori/df_par.pqt")
-# arrow::write_parquet(df.idf, "base/gerados/resultados_com_priori/df_idf.pqt")
-# 
-# # Ajustar d-GEV e estimar quantis e intervalos de confiança: sem priori
-# ls.fit <- fitboot.dgev(ls.data, prior.info = NULL, durations, return.period, cols = names(data),
-#                        method, scale.inv, B, conf = 0.95, maxit = 1e8)
-# 
-# df.par <- bind_rows(lapply(ls.fit, `[[`, "par"))
-# df.idf <- bind_rows(lapply(ls.fit, `[[`, "idf"))
-# 
-# saveRDS(ls.fit, "base/gerados/resultados_sem_priori/ls_fit.rds")
-# arrow::write_parquet(df.par, "base/gerados/resultados_sem_priori/df_par.pqt")
-# arrow::write_parquet(df.idf, "base/gerados/resultados_sem_priori/df_idf.pqt")
+
+## ESTIMATIVAS POR DURAÇÃO -----------------------------------------------
+
+# Possíveis alternativas de restrição no parâmetro de forma
+ls.prior <- list(NULL, c(-0.10, 0.122), c(0.0178, 0.0627))
+ls.fit <- lapply(ls.prior, function(prior){
+  fit <- fitboot.gev(
+    data = ls.data,
+    prior.info = prior,
+    durations = durations,
+    return.period = return.period,
+    cols = names(data),
+    B = B,
+    maxit = 1e8
+  )
+})
+
+gc()
+
+saveRDS(ls.fit, "base/gerados/resultados_por_duracao/ls_fit_by_d.rds")
+
+# Read RDS file and bind results together
+ls.fit <- readRDS("base/gerados/resultados_por_duracao/ls_fit_by_d.rds")
+ls.par <- vector("list", length(ls.fit)) # lista vazia p/ parâmetros
+ls.idf <- vector("list", length(ls.fit)) # lista vazia p/ quantis
+
+for(i in seq_along(ls.fit)){
+  ls.par[[i]] <- bind_rows(lapply(ls.fit[[i]], `[[`, "par")) 
+  ls.idf[[i]] <- bind_rows(lapply(ls.fit[[i]], `[[`, "idf"))
+}
+
+df.par <- bind_rows(ls.par)
+df.idf <- bind_rows(ls.idf)
+
+arrow::write_parquet(df.par, "base/gerados/resultados_por_duracao/df_par_by_d.pqt")
+arrow::write_parquet(df.idf, "base/gerados/resultados_por_duracao/df_idf_by_d.pqt")

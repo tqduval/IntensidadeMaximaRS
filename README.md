@@ -7,6 +7,7 @@ Isso mostra o quão incertas estimativas podem ser para extremos quando temos po
 
 Então mesmo que na média, para os dados observados, o modelo de IDF com informação adicional não seja muito diferente do modelo clássico, a diferença que de fato estamos observados é nos extremos, onde o $\kappa$ mais influencia.
 ## Tarefas
+Gerar resultados com o 'Método Delta' mesmo.
 - [ ] Figura comparação redução incerteza com priori regional.
 Otimização e verossimilhança:
 - [x] Adicionar restrições para `a + kappa` dentro da função `nll.dgev()` seguindo a formulação em `aux_function.R` para a verossimilhança para uma única duração;

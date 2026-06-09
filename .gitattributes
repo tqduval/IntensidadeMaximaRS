@@ -1,2 +1,4 @@
 base filter=lfs diff=lfs merge=lfs -text
 base/gerados filter=lfs diff=lfs merge=lfs -text
+base/gerados/resultados_por_duracao/ls_fit_by_d.rds filter=lfs diff=lfs merge=lfs -text
+base/gerados/resultados_por_duracao/ls_fit_by_d.rds filter=lfs diff=lfs merge=lfs -text

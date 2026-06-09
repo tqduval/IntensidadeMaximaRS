@@ -55,15 +55,16 @@ ls.data <- split(data, data$gauge_code)
 
 # FUNÇÃO -----------------------------------------------------------------
 
-# gg <- "A812"
-# data.gg <- data[data$gauge_code == gg, ]
+gg <- "A812"
+gg <- "430460601A"
+data.gg <- data[data$gauge_code == gg, ]
 
 shape.delta <- function(
   data,
   cols = c("gauge_code", "year", "d", "imax"),
   conf = 0.95,
   maxit = 1e6
-) {
+){
   if (any(names(data[[1]]) != cols)) {
     stop(
       "Nomes das colunas e 'cols'não corresponde aos nomes das colunas em 'data'\n",
@@ -75,7 +76,8 @@ shape.delta <- function(
     )
   }
 
-  get.shape <- function(data.gg) {
+  get.shape <- function(data.gg){
+
     yd.gg <- data.gg %>%
       pivot_wider(names_from = d, values_from = imax, names_prefix = "d_") %>%
       arrange(wateryear) %>%
@@ -93,169 +95,12 @@ shape.delta <- function(
     }
 
     # Ajustar GEV convencional sem dependência temporal
-    fgev <- function(param0, y, prior.info = NULL, maxit) {
-      nll.gev <- function(param0, y, prior.info) {
-        xi <- param0[1]
-        alpha <- param0[2]
-        kappa <- param0[3]
-        n <- length(y)
+    source("R/funcoes/fgev.R")
 
-        if (!is.null(prior.info)) {
-          mu.kappa <- prior.info[1]
-          var.kappa <- prior.info[2]^2
-
-          a <- 0.5
-          b <- mu.kappa + a
-          p <- b^2 * (1 - b) / var.kappa - b
-          q <- p * (1 / b - 1)
-
-          if (a - abs(kappa) <= 1e-6) {
-            return(1e6 + abs(kappa) * 1e4)
-          } # impedir log(<0)
-          # if(a - abs(kappa) <= 1e-6) return(1e6) # impedir log(<0)
-          l.prior <- (p - 1) * log(a + kappa) + (q - 1) * log(a - kappa)
-        } else {
-          l.prior <- 0
-        }
-
-        zi <- 1 - kappa / alpha * (y - xi)
-
-        # Fallbacks
-        if (alpha <= 0) {
-          return(1e6 + abs(alpha) * 1e4)
-        }
-        if (any(zi <= 1e-8)) {
-          return(1e6 + abs(min(zi)) * 1e4)
-        }
-
-        # Negative log-likelihood
-        term1 <- (1 / kappa - 1) * log(zi)
-        term2 <- zi^(1 / kappa)
-        nll <- -(-n * log(alpha) + sum(term1 - term2) + l.prior)
-
-        return(nll)
-      }
-
-      # Função gradiente nll.gev()
-      grad.ll.gev <- function(param, y, prior.info) {
-        xi <- param[1]
-        alpha <- param[2]
-        kappa <- param[3]
-        N <- length(y)
-
-        if (alpha <= 1e-8) {
-          return(c(0, 1e6, 0)) # corrigir alpha (param[3]) e não os demais
-        }
-
-        # Avaliar se há distribuição a priori
-        if (!is.null(prior.info)) {
-          mu.kappa <- prior.info[1]
-          var.kappa <- prior.info[2]^2
-
-          a <- 0.5
-          b <- mu.kappa + a
-          p <- b^2 * (1 - b) / var.kappa - b
-          q <- p * (1 / b - 1)
-
-          if (a - abs(kappa) <= 1e-6) {
-            return(rep(1e6, 3))
-          }
-
-          dl.prior <- (p - 1) / (a + kappa) - (q - 1) / (a - kappa)
-        } else {
-          dl.prior <- 0
-        }
-
-        # Termos simplificadores
-        zi <- 1 - kappa / alpha * (y - xi)
-        if (any(zi <= 1e-8)) {
-          return(rep(1e6, 3))
-        }
-        inv.z <- 1 / zi
-        z.inv.k <- zi^(1 / kappa)
-        z.inv.km1 <- zi^(1 / kappa - 1)
-        ln.z <- log(zi)
-
-        # Derivadas em relação a zi
-        dz.dxi <- kappa / alpha
-        dz.dalpha <- kappa / alpha^2 * (y - xi)
-        dz.dkappa <- -(y - xi) / alpha
-
-        # Gradientes
-        grad.xi <- -sum(
-          (1 / kappa - 1) * inv.z * dz.dxi - 1 / kappa * z.inv.km1 * dz.dxi
-        )
-        grad.alpha <- N /
-          alpha -
-          sum(
-            (1 / kappa - 1) *
-              inv.z *
-              dz.dalpha -
-              1 / kappa * z.inv.km1 * dz.dalpha
-          )
-        grad.kappa <- -sum(
-          (1 / kappa - 1) *
-            inv.z *
-            dz.dkappa -
-            ln.z / kappa^2 -
-            z.inv.k * (1 / kappa * inv.z * dz.dkappa - ln.z / kappa^2)
-        ) -
-          dl.prior
-
-        return(c(grad.xi, grad.alpha, grad.kappa))
-      } # fim 'grad.ll.gev()'
-
-      # Definir limites para L-BFGS-B
-      lower <- c(
-        -Inf,
-        1e-6,
-        ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6),
-        1e-6,
-        0
-      )
-      upper <- c(
-        Inf,
-        Inf,
-        ifelse(is.null(prior.info), -Inf, 0.5 - 1e-6),
-        1 - 1e-6,
-        Inf
-      )
-
-      # Usando Nelder-Mead
-      fit <- tryCatch(
-        {
-          fit.obj <- optim(
-            par = param0,
-            fn = nll.gev,
-            method = "L-BFGS-B",
-            gr = grad.ll.gev,
-            lower = lower,
-            upper = upper,
-            hessian = TRUE,
-            y = y,
-            prior.info = prior.info,
-            control = list(
-              maxit = maxit,
-              factr = 1e10, # relaxa a tolerância da função
-              pgtol = 1e-4, # adiciona tolerância no gradiente
-              lmm = 20, # aumenta a memória da hessiana aproximada
-              # trace = 1     # acompanhar o progresso do ajuste
-            )
-          )
-        },
-        error = function(e) {
-          warning("Erro ao maximizar a minimizar 'nll.gev(): ", e)
-          return(NULL)
-        }
-      )
-
-      return(fit)
-    }
-
-    # Parâmetro de forma GEV + MLE
-    res.gev.mle <- apply(yd.gg, 2, function(y) {
+    # Parâmetro de forma GEV + GMLE
+    res.gev.gmle <- apply(yd.gg, 2, function(y) {
       start <- flmom(y)
-      fit <- try(fgev(start, y, maxit = maxit))
+      fit <- try(fgev(start, y, prior.info = c(-0.10, 0.122), maxit = maxit))
       par <- fit$par
       hes <- fit$hessian
       cov.par <- try(solve(hes), silent = TRUE)
@@ -280,12 +125,7 @@ shape.delta <- function(
       if (abs(start["k"]) >= 0.5) {
         start["k"] <- 0.0178
       }
-      fit <- fgev(
-        unname(start),
-        y,
-        prior.info = c(0.0178, 0.0627),
-        maxit = maxit
-      )
+      fit <- fgev(unname(start), y, prior.info = c(0.0178, 0.0627), maxit = maxit)
       par <- fit$par
       hes <- fit$hessian
       cov.par <- try(solve(hes), silent = TRUE)
@@ -305,12 +145,7 @@ shape.delta <- function(
     })
 
     # Parâmetro de forma dGEV + MLE
-    fit.dgev.mle <- fdgev(
-      data.gg,
-      cols = names(data.gg),
-      method = "L-BFGS-B",
-      scale.inv = "wide"
-    )
+    fit.dgev.mle <- fdgev(data.gg, cols = names(data.gg), method = "L-BFGS-B", scale.inv = "wide")
     if (!is.null(fit.dgev.mle) && fit.dgev.mle$convergence == 0) {
       kappa.dgev.mle <- fit.dgev.mle$par[[3]]
       hes.dgev.mle <- fit.dgev.mle$hes
@@ -322,23 +157,15 @@ shape.delta <- function(
 
       res.dgev.mle <- c(
         kappa = kappa.dgev.mle,
-        ci_lower = kappa.dgev.mle -
-          qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.mle,
-        ci_upper = kappa.dgev.mle +
-          qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.mle
+        ci_lower = kappa.dgev.mle - qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.mle,
+        ci_upper = kappa.dgev.mle + qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.mle
       )
     } else {
-      NA
+      rep(NA_real_, 3)
     }
 
     # Parâmetro de forma dGEV + RGMLE
-    fit.dgev.rgmle <- fdgev(
-      data.gg,
-      prior.info = c(0.0178, 0.0627),
-      cols = names(data.gg),
-      "L-BFGS-B",
-      "wide"
-    )
+    fit.dgev.rgmle <- fdgev(data.gg, prior.info = c(0.0178, 0.0627), cols = names(data.gg), "L-BFGS-B", "wide")
     if (!is.null(fit.dgev.rgmle) && fit.dgev.rgmle$convergence == 0) {
       kappa.dgev.rgmle <- fit.dgev.rgmle$par[[3]]
       hes.dgev.rgmle <- fit.dgev.rgmle$hes
@@ -350,19 +177,17 @@ shape.delta <- function(
 
       res.dgev.rgmle <- c(
         kappa = kappa.dgev.rgmle,
-        ci_lower = kappa.dgev.rgmle -
-          qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.rgmle,
-        ci_upper = kappa.dgev.rgmle +
-          qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.rgmle
+        ci_lower = kappa.dgev.rgmle - qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.rgmle,
+        ci_upper = kappa.dgev.rgmle + qnorm(1 - (1 - conf) / 2) * sd.kappa.dgev.rgmle
       )
     } else {
-      NA
+      rep(NA_real_, 3)
     }
 
     gg <- unique(data.gg[[cols[1]]])
     durations <- sort(unique(data.gg[[cols[3]]]))
     shape.names <- c(
-      "kappa_gev_mle",
+      "kappa_gev_gmle",
       "kappa_gev_rgmle",
       "kappa_dgev_mle",
       "kappa_dgev_rgmle"
@@ -373,7 +198,7 @@ shape.delta <- function(
     )
     out <- bind_cols(
       id = out.names,
-      rbind(t(res.gev.mle), t(res.gev.rgmle), res.dgev.mle, res.dgev.rgmle)
+      rbind(t(res.gev.gmle), t(res.gev.rgmle), res.dgev.mle, res.dgev.rgmle)
     )
 
     return(out)
@@ -410,6 +235,5 @@ arrow::write_parquet(df.shape, "base/gerados/df_shapes_delta.pqt")
 
 df.shape %>%
   rowwise() %>%
-  mutate(sd = round(sd(c(kappa, ci_lower, ci_upper)), 2)) %>%
-  filter(sd < 1e-4) %>%
-  print(n = 86)
+  mutate(width = ci_upper - ci_lower) %>%
+  filter(width < 1e-4)
