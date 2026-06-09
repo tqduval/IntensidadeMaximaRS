@@ -34,7 +34,7 @@ data <- df.imax %>%
   filter(n_distinct(d) >= 3, n_distinct(wateryear) >= 8) %>%
   ungroup() %>%
   select(gauge_code, wateryear, d, imax)
-
+  
 prior.info <- NULL
 # prior.info <- c(0.0178, 0.0627)
 conf <- 0.95
