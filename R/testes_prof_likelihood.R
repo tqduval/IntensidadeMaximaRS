@@ -55,7 +55,7 @@ y.id <- data.gg %>%
 # Função para otimização com theta_{-i}
 prof.nll.gev <- function(par.free, which.par, par.value, y, prior.info){
   i <- which.par       # posição do parâmetro que vai ser analisado (de 1:length(param))
-  full <- numeric(5)
+  full <- numeric(3)
   full[i] <- par.value # substituir parâmetro em análise
   full[-i] <- par.free # trazer demais parâmetros que serão otimizados
   nll.gev(full, y, prior.info)
@@ -64,7 +64,7 @@ prof.nll.gev <- function(par.free, which.par, par.value, y, prior.info){
 # Função gradiente com theta_{-i}
 prof.grad.gev <- function(par.free, which.par, par.value, y, prior.info){
   i <- which.par # posição do parâmetro que vai ser analisado (de 1:length(param))
-  full <- numeric(5)
+  full <- numeric(3)
   full[i] <- par.value
   full[-i] <- par.free
   gr <- grad.ll.gev(full, y, prior.info)

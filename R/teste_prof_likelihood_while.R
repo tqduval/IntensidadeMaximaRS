@@ -116,13 +116,14 @@ while(ll > lim){
 # Function
 roots.proflik <- function(step){
   
-  # val.i <- par[[i]] + step    # iniciar contador
-  val.i <- par[[i]]           # iniciar contador
-  last.par <- par             # salvar último conjunto de parâmetros
-  lim <- ll - qchisq(conf, 1) # limite de definição dos ICs
-  result <- list()            # iniciar lista com resultados
+  # val.i <- par[[i]] + step      # iniciar contador
+  val.i <- par[[i]]             # iniciar contador
+  last.par <- par               # salvar último conjunto de parâmetros
+  lim <- ll - qchisq(conf, 1)/2 # limite de definição dos ICs
+  result <- list()              # iniciar lista com resultados
   
   # Start of 'while search'
+  # while(ll > lim){
   while(ll > lim){
     
     fit.prof <- tryCatch(
@@ -162,11 +163,11 @@ roots.proflik <- function(step){
       full[-i] <- last.par[-i] # se falhar, usar rodada anterior
     }
     
-    full[i] <- val.i
-    val.i <- val.i + step
-    last.par <- full
+    full[i] <- val.i      # 
+    val.i <- val.i + step # atualizar contador
+    last.par <- full      # atualizar conjunto de parâmetros
     current.iter <- length(result) + 1
-    result[[current.iter]] <- c(full, ll)
+    result[[current.iter]] <- c(full, ll) # incluir resultados na lista
     
     # message(sprintf("Intervalo: %-8s | Parâmetro: %s = %0.3f | Loglik: %0.3f\n", 
     #                 ifelse(step < 0, "inferior", "superior"), names(par)[i], val.i, ll))
@@ -186,13 +187,18 @@ roots.proflik <- function(step){
 
 # Teste função 'roots.proflik()'
 # Construção da função
-prior.info <- c(0.0178, 0.0627)
+# prior.info <- NULL
+# prior.info <- c(0.0178, 0.0627)
+d <- 20
+i <- 3 # parâmetro
+y <- y.id[,d]
 fit <- fgev(y, prior.info)
 par <- fit$par
+npar <- length(par)
 ll <- -fit$value
 conf <- 0.95
 step <- 0.0025
-lim <- ll - qchisq(conf, 1)
+lim <- ll - qchisq(conf, 1)/2
 ci.left <- roots.proflik(-step)
 ci.right <- roots.proflik(step)
 
@@ -222,3 +228,19 @@ ggplot() +
     subtitle = sprintf("Duração: %g h | Priori: %s | Delta: %0.4f", d, gsub("c", "", deparse(prior.info)), step)
   ) +
   theme(panel.grid = element_blank())
+
+# Conferir se os máximos batem
+prof.max
+new.par <- unlist(prof.par[which.max(prof.par$loglik), seq_len(npar)])
+
+-nll.gev(new.par, y, prior.info)
+start.gev(y)
+
+prof.par <- prof.par %>%
+  mutate(
+    lag_kappa = kappa - lag(kappa),
+    jumped = if_else(abs(lag_kappa) > step, TRUE, FALSE)
+  )
+
+prof.par$kappa[which(abs(prof.par$lag_kappa) > step)]
+prof.par$loglik[which(abs(prof.par$lag_kappa) > step)]

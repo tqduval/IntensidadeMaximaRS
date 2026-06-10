@@ -45,7 +45,7 @@ nll.gev <- function(param, y, prior.info) {
   term2 <- zi^(1 / kappa)
   nll <- -(-n * log(alpha) + sum(term1 - term2) + l.prior)
 
-  return(nll)
+  return(unname(nll))
 }
 
 #' @title Função gradiente da log-verossimilhança
@@ -126,7 +126,7 @@ fgev <- function(y, prior.info = NULL, maxit = 1e8) {
         y = y, prior.info = prior.info, control = list(
           maxit = maxit,
           factr = 1e10, # relaxa a tolerância da função
-          pgtol = 1e-4, # adiciona tolerância no gradiente
+          pgtol = 1e-8, # adiciona tolerância no gradiente
           lmm = 20     # aumenta a memória da hessiana aproximada
           # trace = 1     # acompanhar o progresso do ajuste
         )
@@ -142,7 +142,7 @@ fgev <- function(y, prior.info = NULL, maxit = 1e8) {
     fit <- tryCatch(
       optim(
         par = start, fn = nll.gev, method = "Nelder-Mead", hessian = TRUE, 
-        y = y, prior.info = prior.info, control = list(maxit)
+        y = y, prior.info = prior.info, control = list(maxit = maxit)
       ),
       error = function(e){
         warning("Erro no processamento por duração: ", e)
