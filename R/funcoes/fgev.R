@@ -125,6 +125,7 @@ fgev <- function(y, prior.info = NULL, maxit = 1e8) {
         par = start, fn = nll.gev, method = "L-BFGS-B", gr = grad.ll.gev, lower = lower, upper = upper, hessian = TRUE,
         y = y, prior.info = prior.info, control = list(
           maxit = maxit,
+          parscale = abs(start), # escala dos parâmetros
           factr = 1e10, # relaxa a tolerância da função
           pgtol = 1e-8, # adiciona tolerância no gradiente
           lmm = 20     # aumenta a memória da hessiana aproximada
@@ -142,7 +143,11 @@ fgev <- function(y, prior.info = NULL, maxit = 1e8) {
     fit <- tryCatch(
       optim(
         par = start, fn = nll.gev, method = "Nelder-Mead", hessian = TRUE, 
-        y = y, prior.info = prior.info, control = list(maxit = maxit)
+        y = y, prior.info = prior.info, control = list(
+          maxit = maxit,
+          parscale = abs(start)
+          # reltol = 1e-10
+        )
       ),
       error = function(e){
         warning("Erro no processamento por duração: ", e)
