@@ -154,7 +154,7 @@ ciprof.par <- function(par, max.ll, lltol, step, conf){
         step = step
       ),
       prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar + 1)]),
-      profile = as.data.frame(cbind(parname = parname, profile))
+      profile = cbind(parname = parname, as.data.frame(profile))
     )
 
     return(out)
@@ -253,75 +253,96 @@ opt.ll <- max(ls.ci.par[["ci"]][["max"]])
 rerun.ci.par <- ciprof.par(setNames(opt.par, names(par)), opt.ll, lltol, step, conf)
 opt.par <- setNames(rerun.ci.par[["ci"]][["par"]], names(par))
 opt.ll <- max(rerun.ci.par[["ci"]][["max"]])
+lim.par <- opt.ll - qchisq(conf, 1)/2 # limite de definição dos ICs
 
 ## QUANTIS ---------------------------------------------------------------
 
 # Define durations and return periods
 # durations <- c(1, 6, 12, 24) # durations is already set as 'd'
-return.period <- 10
-p <- 1 - 1/return.period
+return.period <- c(10, 20, 50)
+probs <- 1 - 1/return.period
 
-# Estimate quantiles with optimal parameters
-q <- qgev(param = opt.par, p.nexceed = p)
-
-# Reparametrize quantile expression in terms of xi
-alpha <- opt.par[[2]]; kappa <- opt.par[[3]]
-xi.q <- q - alpha/kappa*(1 - (-log(p))^kappa) # estimate a new 'xi'
-par.q <- opt.par # create a par vector to be optimized with respect to alpha and kappa
-par.q[1] <- xi.q # replace existing 'xi' estimate with new 'xi.q'
-
-# Now the new parameter to be fixed is xi.q, which is in reality 'q'
-prof.nll.gev(par.free = par.q[-1], which.par = 1, par.value = xi.q, y, prior.info)
+par.free <- opt.par[-1]
+p <- probs[1]
+rp <- return.period[1]
+q0 <- qgev(opt.par, 1 - 1/rp)
 ll <- opt.ll
-roots.proflik(step, conf, par = par.q, i = 1, ll = opt.ll)
-# ALTERAR: isso não funcionaria pq que deve ser alterado é q e não xi.q
-
 # rp must have only one value
 
-roots.proflik.q <- function(step, conf, par, i, ll, rp){
+# Limites inferior e superior
+lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
+upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
 
-  # Reparametrize quantile expression in terms of xi
-  p <- 1 - 1/rp
-  q <- qgev(par, p)
-  alpha <- par[[2]]
-  kappa <- par[[3]]
-  xi.q <- q - alpha/kappa*(1 - (-log(p))^kappa) # estimate a new 'xi'
-  par.q <- opt.par # create a par vector to be optimized with respect to alpha and kappa
-  par.q[1] <- xi.q # replace existing 'xi' estimate with new 'xi.q'
-  i <- 1
+# optim() with internal function to avoid argument name conflicts
+optim(
+  par = par.free,
+  fn = function(par.interno){
+    prof.nll.gev.q(
+      par.free = par.interno,
+      q0 = q0,
+      p.nexceed = p, # better changing to 'prob'
+      y = y,
+      prior.info = prior.info
+    )
+  },
+  gr = NULL, method = "L-BFGS-B", lower = lower[-1], upper = upper[-1],
+  control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(par.free))
+) # this works, might be best practice for the other previous functions that use optim
 
-  # val.i <- par[[i]] + step      # iniciar contador
-  val.i <- par[[1]]             # iniciar contador
-  npar <- length(par.q)         # number of parameters
-  last.par <- par.q             # salvar último conjunto de parâmetros
-  lim <- ll - qchisq(conf, 1)/2 # limite de definição dos ICs
-  result <- list()              # iniciar lista com resultados
+# optim() but just call 'par' argument directly instead of relying on order alone
+optim(
+  par = par.free, fn = prof.nll.gev.q, method = "L-BFGS-B", gr = NULL, lower = lower[-1], upper = upper[-1],
+  # q0 = q0, p = p, y = y, prior.info = prior.info,
+  q0 = q0, p.nexceed = p, prior.info = prior.info, y = y,
+  control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(par.free))
+)
 
-  # Limites inferior e superior
-  lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
-  upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
-  
-  # Start of 'while search'
-  # while(ll > lim){
+### New negative log-likelihood funcion specific to quantile CI estimation
+prof.nll.gev.q <- function(par.free, q0, p.nexceed, y, prior.info){
+
+  p <- p.nexceed
+  alpha <- par.free[[1]]
+  kappa <- par.free[[2]]
+
+  # if(abs(kappa) <= 1e-8) return(abs(kappa)*1e4)
+  xi.q <- q0 - alpha/kappa*(1 - (-log(p))^kappa) # estimate a new 'xi' tied to 'q0'
+  full <- c(xi.q, alpha, kappa)
+
+  return(nll.gev(full, y, prior.info))
+
+}
+
+prof.nll.gev.q(par.free, q0, p, y, prior.info)
+
+par <- opt.par
+
+roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper){
+
+  p <- 1 - 1/rp                 # non-exceedance prob
+  q0 <- qgev(unname(par), p)    # original quantile for 'p'
+  last.par.free <- par[-1]      # initiate 'last.par.free'
+  lim <- ll - qchisq(conf, 1)/2 # CI threshold
+  result <- list()
+
   while(ll > lim){
-    
+
     fit.prof <- tryCatch(
       optim(
-        last.par[-i], fn = prof.nll.gev, gr = prof.grad.gev, method = "L-BFGS-B", lower = lower[-i], upper = upper[-i],
-        which.par = i, par.value = val.i, prior.info = prior.info, y = y,
-        control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(last.par[-i]))
+        par = last.par.free, fn = prof.nll.gev.q, gr = NULL, method = "L-BFGS-B", lower = lower[-1],
+        q0 = q0, p.nexceed = p, prior.info = prior.info, y = y,
+                control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(par.free))
       ),
       error = function(e) NULL
     )
-    
+
     if(!is.null(fit.prof) && fit.prof$convergence == 0){
       ll <- -fit.prof$value
     } else{
       fit.prof <- tryCatch(
         optim(
-          last.par[-i], fn = prof.nll.gev, gr = NULL, method = "Nelder-Mead",
-          which.par = i, par.value = val.i, prior.info = prior.info, y = y,
-          control = list(maxit = maxit, parscale = abs(last.par[-i]))
+          par = last.par.free, fn = prof.nll.gev.q, gr = NULL, method = "Nelder-Mead",
+          q0 = q0, p.nexceed = p, y = y, prior.info = prior.info,
+          control = list(maxit = maxit, parscale = abs(last.par.free))
         ),
         error = function(e) NULL
       )
@@ -334,37 +355,63 @@ roots.proflik.q <- function(step, conf, par, i, ll, rp){
         ll <- NA_real_
       }
     }
-    
-    # FAZER: aqui deve ser feita a atualização de 'q'
-    full <- numeric(npar + 1)
+
     if(!is.null(fit.prof) && !is.na(ll)){
-      full[-i] <- fit.prof$par # se não falhar, atualizar parâmetros
-    } else{
-      full[-i] <- last.par[-i] # se falhar, usar rodada anterior
+      last.par.free <- fit.prof$par
     }
-    
-    full[i] <- val.i      # 
-    val.i <- val.i + step # atualizar contador
-    last.par <- full      # atualizar conjunto de parâmetros
-    current.iter <- length(result) + 1
-    result[[current.iter]] <- c(full, ll) # incluir resultados na lista
-    
-    # message(sprintf("Intervalo: %-8s | Parâmetro: %s = %0.3f | Loglik: %0.3f\n", 
-    #                 ifelse(step < 0, "inferior", "superior"), names(par)[i], val.i, ll))
-    
-  } # end of 'while search'
+  
+    opt.alpha <- last.par.free[1] # extract optimal 'alpha'
+    opt.kappa <- last.par.free[2] # extract optimal 'kappa'
+    opt.xi <- q0 - opt.alpha/opt.kappa*(1 - (-log(p))^opt.kappa) # rebuild optimal 'xi'
+    q0 <- q0 + step               # update quantile
+    current.iter <- length(result) + 1 # update counter
+    result[[current.iter]] <- c(q0, opt.xi, opt.alpha, opt.kappa, ll)
+    message(sprintf("q: %0.3f mm/h | ll: %0.3f", q0, ll))
+
+  }
+
+  if (length(result) == 0) return(NULL)
   
   prof.par <- do.call(rbind, result)
-  colnames(prof.par) <- c(names(par), "loglik")
+  colnames(prof.par) <- c(paste0("q_", rp), "xi", "alpha", "kappa", "loglik")
   
   return(prof.par)
 
 }
 
-ciprof.q <- function(param, return.period){
+left <- roots.proflik.q(
+  step = -step,
+  conf = conf,
+  par = opt.par,
+  ll = opt.ll,
+  rp = rp,
+  y = y,
+  prior.info = prior.info,
+  lower = lower,
+  upper = upper
+)
 
-  p <- 1 - 1/return.period
-  q <- qgev(param, p)
-  
+right <- roots.proflik.q(
+  step = 0.01,
+  conf = conf,
+  par = opt.par,
+  ll = opt.ll,
+  rp = rp,
+  y = y,
+  prior.info = prior.info,
+  lower = lower,
+  upper = upper
+)
 
-}
+proflik <- as_tibble(rbind(left, right))
+
+ggplot(proflik, aes(x = q_10, y = loglik)) +
+  geom_line() +
+  theme_bw()
+
+rerun.ci.par$profile %>%
+  filter(parname == "kappa") %>% 
+  ggplot(aes(x = par, y = loglik)) +
+  geom_line() +
+  geom_hline(yintercept = lim.par, color = "red") +
+  theme_bw()
