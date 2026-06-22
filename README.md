@@ -19,6 +19,25 @@ Testes realizados
 - Otimização **sem** distribuição *a priori* + `method = "L-BFGS-B"`: OK
 - Otimização **com** distribuição *a priori* + `method = "Nelder-Mead"`: OK
 - Otimização **com** distribuição *a priori* + `method = "L-BFGS-B"`: OK
+### Pendências função perfil de verossimilhança
+#### Problema
+Precisamos incluir algumas restrições durante a busca com o `while()`.  No momento o algoritmo de busca "corre solto" sem olhar pros lados, não respeita os limites dos parâmetros definidos.
+
+Este problema foi encontrado estimando os perfis da verossimilhança para o posto A801 na duração de 20 h usando um passo de busca de 0.005. Nisso notou-se que o no `while()` não está implementada nenhuma conferência que garanta que o parâmetro `i` para o qual o perfil está sendo gerado respeite seus limites teóricos da GEV.
+
+No caso acima, a otimização problemática ocorre com `alpha`. Ao buscar o limite inferior do intervalo de confiança, uma vez que o valor da amostra original já é pequeno (da ordem de 0.96), os passos negativos eventualmente testam `alplha = -0.000` e imediatamente quebra uma restrição da função `nll.gev()` que impõe:
+```r
+if(alpha <= 1e-8) return(1e6 + abs(alpha)*1e4)
+```
+Caso `alpha` estivesse sendo otimizado, o `optim` automaticamente fugiria desta região, mas como não há nenhuma restrição sobre os valores propostos ao `while()`, ele testa mesmo assim valores fora dos limites o que leva ao erro.
+#### Possível solução
+Implementar checagens durante a busca com `while()`. O código deve conferir os limites dos parâmetros (inicialmente só `alpha <= 1e-8`). Adicionalmente, calcular os limites teóricos da GEV:
+```
+xi + alpha/kappa <> min max(y)
+```
+Se houver algum problema, a busca retorna `ll = NA` imediatamente. Caso não haja problema, realiza-se a otimização para montar o perfil. Encontrado um valor, haverá um novo conjunto de parâmetros associado a esse novo `ll`. As mesmas conferências devem ser feitas e, em caso de problema, `ll = NA`. No passo seguinte, o algoritmo verifica se o passo anterior é `NA`, se isso for verdade, a busca é interrompida.
+
+Incluir também status de erro no dataframe do perfil. Se `ll = NA`, algo como `message = "Limites desrespeitados"`. Se `ll = NA` e parada do `while()`, algo como `message = "Couldn't reach a root due to NA values returned"`. Nesse caso, o limite do perfil seria construído com uma curva não linear ajustada e extrapolada.
 - - -
 ## Alguns achados/hipóteses
 Intervalos de confiança com bootstrap pode não ser a melhor das opções para séries muito curtas (já é meio óbvio). Gera muita instabilidade no modelo e valores de parâmetro de forma e, consequentemente, quantis muito absurdos.
@@ -137,6 +156,8 @@ $$
 
 Isso pode ser entendido como o perfil da função log-verossimilhança ao longo do eixo de $\theta_i$.
 
+A ideia do método baseia-se no teorema de Wilks, que diz que à medida em que uma tende a infinito, a distribuição estatística de $D$ (estatística do teste da razão de verossimilhança) se aproxima assintóticamente de uma distribuição qui-quadrado com 1 grau de liberdade (ou grau de liberdade igual à diferença entre $l$ e $l_p$). Por esse motivo definimos os limites da identificação dos intervalos de confiança como o máximo da log-verossimilhança menos o quantil de $1 - \alpha$ da $\chi^2$.
+
 - - -
 
 ## Funções gradiente para `nll.gev()`
@@ -217,3 +238,8 @@ $$
 $$
 \frac{\partial nll}{\partial\kappa} = - \sum_{i=1}^N\left\{ \left( \frac{1}{\kappa} - 1 \right) \frac{1}{z_i} \frac{\partial z_i}{\partial\kappa} - \frac{\ln(z_i)}{\kappa^2} - z^{1/\kappa}\left[ \frac{1}{\kappa z_i}\frac{\partial z_i}{\partial\kappa} - \frac{\ln(z_i)}{\kappa^2} \right] \right\} - \left( \frac{p-1}{a+\kappa} - \frac{q-1}{a-\kappa} \right)
 $$
+- - -
+## Ajustar uma spline ou nls ao perfil estimado
+
+- - -
+## Calcular o melhor passo

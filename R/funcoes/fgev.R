@@ -33,12 +33,10 @@ nll.gev <- function(param, y, prior.info) {
   zi <- 1 - kappa / alpha * (y - xi)
 
   # Fallbacks
-  if (alpha <= 0) {
-    return(1e6 + abs(alpha) * 1e4)
-  }
-  if (any(zi <= 1e-8)) {
-    return(1e6 + abs(min(zi)) * 1e4)
-  }
+  # if(abs(kappa) < 1e-5) return(1e6 + 1/abs(kappa)) # wall-up infinitesimal "shape"
+  # if(xi <= 1e-8) return(abs(1e6 + abs(xi) * 1e4))
+  if(alpha <= 1e-8) return(1e6 + abs(alpha) * 1e4)
+  if(any(zi <= 1e-8)) return(1e6 + abs(min(zi)) * 1e4)
 
   # Negative log-likelihood
   term1 <- (1 / kappa - 1) * log(zi)
