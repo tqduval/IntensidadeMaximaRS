@@ -65,7 +65,7 @@ roots.proflik <- function(step, conf, par, i, ll){
         par = last.par[-i], fn = function(internal.par){
           prof.nll.gev(par.free = internal.par, which.par = i, par.value = val.i, y = y, prior.info = prior.info)
         },
-        gr = grad.nll.gev, meethod = "L-BFGS-B", lower = lower[-i], upper = upper[-i],
+        gr = grad.nll.gev, method = "L-BFGS-B", lower = lower[-i], upper = upper[-i],
         # control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8)
         control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(last.par[-i]))
       ),
