@@ -38,6 +38,22 @@ xi + alpha/kappa <> min max(y)
 Se houver algum problema, a busca retorna `ll = NA` imediatamente. Caso não haja problema, realiza-se a otimização para montar o perfil. Encontrado um valor, haverá um novo conjunto de parâmetros associado a esse novo `ll`. As mesmas conferências devem ser feitas e, em caso de problema, `ll = NA`. No passo seguinte, o algoritmo verifica se o passo anterior é `NA`, se isso for verdade, a busca é interrompida.
 
 Incluir também status de erro no dataframe do perfil. Se `ll = NA`, algo como `message = "Limites desrespeitados"`. Se `ll = NA` e parada do `while()`, algo como `message = "Couldn't reach a root due to NA values returned"`. Nesse caso, o limite do perfil seria construído com uma curva não linear ajustada e extrapolada.
+
+Avaliações estação A801, d = 20 h:
+1. Rodada p/ `xi`:
+![](Pasted%20image%2020260623162231.png)
+2. Rodada p/ `alpha`:
+![](Pasted%20image%2020260623162319.png)
+3. Rodada p/ `kappa`
+![](Pasted%20image%2020260623162340.png)
+
+Avaliações A801, d = 1 h:
+1. Rodada p/ `xi`
+![](Pasted%20image%2020260623162548.png)
+2. Rodada p/ `alpha`
+![](Pasted%20image%2020260623162628.png)
+3. Rodada p/ `kappa`
+![](Pasted%20image%2020260623162654.png)
 - - -
 ## Alguns achados/hipóteses
 Intervalos de confiança com bootstrap pode não ser a melhor das opções para séries muito curtas (já é meio óbvio). Gera muita instabilidade no modelo e valores de parâmetro de forma e, consequentemente, quantis muito absurdos.

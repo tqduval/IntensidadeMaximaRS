@@ -13,7 +13,7 @@ data <- df.imax %>%
   select(gauge_code, wateryear, d, imax)
 
 prior.info <- NULL
-gg <- "A801"
+gg <- "A812"
 data.gg <- data[data$gauge_code == gg, ]
 cols <- names(data)
 maxit <- 1e8
@@ -30,15 +30,17 @@ y <- y.id[,d]
 
 conf <- 0.95
 lltol <- 0.1
-step <- -0.005 # search step
+step <- 0.005 # search step
 
 
 fit <- fgev(y, prior.info)
 par <- fit$par
+parnames <- names(par)
 
 # New 'roots.proflik()' with restrictions on fixed parameters
 # to avoid 'while()' trying values that violate GEV limits
-i <- 2 # alpha
+# i <- 1
+# i <- 2 # alpha
 # i <- 3
 
 # This is inside `roots,prpolik()`
@@ -55,14 +57,16 @@ lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
 upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
 
 while(ll > lim && !is.na(ll)){
+
+  last.ll <- ll
   
   # Check 'last.par'
-  # if(i == 2){
-  #   if(val.i <= lower[i]){
-  #     ll <- NA_real_
-  #     next
-  #   }
-  # }
+  if(i == 2){
+    if(val.i <= lower[i]){
+      ll <- NA_real_
+      next
+    }
+  }
   
   fit.prof <- tryCatch(
     optim(
@@ -145,9 +149,10 @@ while(ll > lim && !is.na(ll)){
   }
   
   val.i <- val.i + step
+  delta.ll <- (ll - last.ll)/step
   last.par <- full
   current.iter <- length(result) + 1
-  result[[current.iter]] <- c(full, ll)
+  result[[current.iter]] <- c(full, ll, delta.ll)
   
   message(
     sprintf(
@@ -157,6 +162,8 @@ while(ll > lim && !is.na(ll)){
     )
   
 } # end of 'while' search
+
+do.call(rbind, result)
 
 
 roots.proflik <- function(step, conf, par, i, ll){
@@ -285,12 +292,33 @@ roots.proflik <- function(step, conf, par, i, ll){
 
 max.ll <- -fit$value
 
+i <- 3
 left <- roots.proflik(-step, conf, par, i, max.ll)
 right <- roots.proflik(step, conf, par, i, max.ll)
 proflik <- rbind(left, right)
 
-proflik.par <- proflik[,c("alpha", "loglik")]
-spline <- smooth.spline(proflik.par, cv = TRUE)
-plot(proflik.par)
-lines(spline, col = "red")
+proflik.par <- proflik[,c(parnames[i], "loglik")]
+ci.par <- data.frame(
+  x = c(
+    min(proflik.par[,parnames[i]]),
+    max(proflik.par[,parnames[i]])
+  ),
+  y = rep(max.ll - qchisq(conf, 1) / 2, 2)
+)
 
+# Figura
+ggplot() +
+  geom_vline(xintercept = par[i], linetype = "dashed", color = "grey50") +
+  geom_line(aes(x = proflik[, i], y = proflik[, "loglik"]), linewidth = 0.3, color = "grey40") +
+  geom_hline(yintercept = max.ll - qchisq(conf, 1) / 2, color = "red") +
+  geom_point(aes(x = proflik[, i], y = proflik[, "loglik"]), shape = 1, alpha = 0.3) +
+  geom_point(aes(x = x, y = y), ci.par, color = "red", size = 4, shape = 4) +
+  labs(
+    x = parnames[i], y = "loglik",
+    subtitle = sprintf("Estação: %s | d: %g h", gg, d),
+  ) +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Consolas"),
+    panel.grid = element_blank()
+  )
