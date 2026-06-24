@@ -42,83 +42,126 @@ prof.grad.gev <- function(par.free, which.par, par.value, y, prior.info){
 # than the original fgev() function
 roots.proflik <- function(step, conf, par, i, ll){
   
-  # val.i <- par[[i]] + step      # iniciar contador
-  val.i <- par[[i]]             # iniciar contador
-  npar <- length(par)           # number of parameters
-  last.par <- par               # salvar último conjunto de parâmetros
-  lim <- ll - qchisq(conf, 1)/2 # limite de definição dos ICs
-  result <- list()              # iniciar lista com resultados
-
-  # Limites inferior e superior
+  val.i <- par[[i]]
+  npar <- length(par)
+  last.par <- par
+  lim <- ll - qchisq(conf, 1)/2
+  
+  result <- list()
+  
   lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
   upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
   
-  # Start of 'while search'
-  # while(ll > lim){
-  while(ll > lim){
+  while(ll > lim && !is.na(ll)){
+    
+    last.ll <- ll # keep last value of 'll'
+    
+    # Check 'last.par'
+    if(i == 2){
+      if(val.i <= lower[i]){
+        ll <- NA_real_
+        next
+      }
+    }
     
     fit.prof <- tryCatch(
       optim(
-        # last.par[-i], fn = prof.nll.gev, gr = prof.grad.gev, method = "L-BFGS-B", lower = lower[-i], upper = upper[-i],
-        # which.par = i, par.value = val.i, prior.info = prior.info, y = y,
-        # control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(last.par[-i]))
-        par = last.par[-i], fn = function(internal.par){
-          prof.nll.gev(par.free = internal.par, which.par = i, par.value = val.i, y = y, prior.info = prior.info)
+        par = last.par[-i],
+        fn = function(internal.par){
+          prof.nll.gev(
+            par.free = internal.par,
+            which.par = i,
+            par.value = val.i,
+            y = y,
+            prior.info = prior.info
+          )
         },
-        gr = grad.nll.gev, method = "L-BFGS-B", lower = lower[-i], upper = upper[-i],
-        # control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8)
-        control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(last.par[-i]))
+        gr = NULL,
+        method = "L-BFGS-B",
+        lower = lower[-i],
+        upper = upper[-i],
+        control = list(
+          maxit = maxit,
+          factr = 1e9,
+          pgtol = 1e-8,
+          parscale = abs(last.par[-i])
+        )
       ),
       error = function(e) NULL
     )
     
     if(!is.null(fit.prof) && fit.prof$convergence == 0){
+      
       ll <- -fit.prof$value
+      
     } else{
-      fit.prof <- tryCatch(
+      
+      fit.prof <- tryCatch( # try again with Nelder-Mead
         optim(
-          # last.par[-i], fn = prof.nll.gev, gr = NULL, method = "Nelder-Mead",
-          # which.par = i, par.value = val.i, prior.info = prior.info, y = y,
-          # control = list(maxit = maxit, parscale = abs(last.par[-i]))
-          # This makes it more clear which pars are prof.nll.gev()'s and which are optim()'s
-          par = last.par[-1], fn = function(internal.par){
-            prof.nll.gev(par.free = internal.par, which.par = i, par.value = val.i, y = y, prior.info = prior.info)
+          par = last.par[-i],
+          fn = function(internal.par){
+            prof.nll.gev(
+              par.free = internal.par,
+              which.par = i,
+              par.value = val.i,
+              y = y,
+              prior.info = prior.info
+            )
           },
-          # method = "Nelder-Mead", control = list(maxit = maxit)
-          method = "Nelder-Mead", control = list(maxit = maxit, parscale = abs(last.par[-i]))
+          method = "Nelder-Mead",
+          control = list(
+            maxit = maxit,
+            parscale = abs(last.par[-i])
+          )
         ),
         error = function(e) NULL
       )
+      
       if(!is.null(fit.prof) && fit.prof$convergence %in% c(0, 10)){
         ll <- -fit.prof$value
-        if(ll < -1e6){
-          ll <- NA_real_
-        }
+        if(ll < -1e4) ll <- NA_real_ # optim might reach convergence == 0, but converge to a break wall
       } else{
         ll <- NA_real_
       }
+      
     }
     
     full <- numeric(npar)
     if(!is.null(fit.prof) && !is.na(ll)){
-      full[-i] <- fit.prof$par # se não falhar, atualizar parâmetros
+      full[-i] <- fit.prof$par
     } else{
-      full[-i] <- last.par[-i] # se falhar, usar rodada anterior
+      full[-i] <- last.par[-i]
     }
     
-    full[i] <- val.i      # 
-    val.i <- val.i + step # atualizar contador
-    last.par <- full      # atualizar conjunto de parâmetros
+    full[i] <- val.i
+    
+    # Check GEV limits
+    gev.lim <- full[1] + full[2]/full[3]  # xi + alpha/kappa
+    
+    if(full[3] < 0){
+      if(any(y < gev.lim)) ll <- NA_real_ # domain violation for Fréchet law
+    }
+    if(full[3] > 0){
+      if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
+    }
+    
+    val.i <- val.i + step
+    delta.ll <- (ll - last.ll)/step # how is the algorithm jumping around
+    last.par <- full
     current.iter <- length(result) + 1
-    result[[current.iter]] <- c(full, ll) # incluir resultados na lista
+    result[[current.iter]] <- c(full, ll, delta.ll)
     
-    message(sprintf("ci %-8s | %s = %0.3f | loglik: %0.3f", 
-                    ifelse(step < 0, "lower", "upper"), names(par)[i], val.i, ll))
+    message(
+      sprintf(
+        "ci %-5s | %s: %0.3f | loglik: %0.3f", 
+        ifelse(step < 0, "lower", "upper"), 
+        names(par)[i], val.i, ll)
+    )
     
-  } # end of 'while search'
+  } # end of 'while' search
   
   prof.par <- do.call(rbind, result)
-  colnames(prof.par) <- c(names(par), "loglik")
+  colnames(prof.par) <- c(names(par), "loglik", "delta_ll")
   
   return(prof.par)
   
@@ -155,8 +198,9 @@ ciprof.par <- function(par, max.ll, lltol, step, conf){
     }
 
     parname <- names(par)[i]
-    profile <- proflik[,c(i, ncol(proflik))]
-    colnames(profile) <- c("par", "loglik")
+    profile <- proflik[,c(parname, "loglik", "delta_ll")]
+    profile <- profile[order(profile[,1]),] # order by parameter value
+    colnames(profile) <- c("par", "loglik", "delta_ll")
     out <- list(
       ci = data.frame(
         gauge_code = gg,
@@ -166,10 +210,9 @@ ciprof.par <- function(par, max.ll, lltol, step, conf){
         ci_lower = ci.lower,
         ci_upper = ci.upper,
         max = max.ll,
+        lim = max.ll - qchisq(conf, 1)/2,
         prior = deparse(prior.info),
         message = message, # if message == 1, 'prof.pars' should be checked
-        # convergence = fit$convergence,
-        # algo = algo,
         conf = conf,
         step = step
       ),
@@ -336,7 +379,7 @@ y.id <- data.gg %>%
   na.omit()
 
 # d <- 10
-d <- 20
+d <- 1
 y <- y.id[,d]
 
 # Define confidence level and a search step
@@ -351,13 +394,7 @@ step <- 0.005 # search step
 
 # Function
 # Original optimal parameters and maximum
-fit <- fgev(y, prior.info)       # this is the original estimate with a maximum log-likelihood algorithm
-# gradient <- fit[["counts"]][[2]] # check if gradient is NA or number
-# if(is.na(gradient)){
-#   algo <- "Nelder-Mead"
-# } else{
-#   algo <- "L-BFGS-B"
-# }
+fit <- fgev(y, prior.info)
 par <- fit$par
 npar <- length(par)
 convergence <- fit$convergence
@@ -367,9 +404,6 @@ max.ll <- -fit$value
 ls.ci.par <- ciprof.par(par, max.ll, lltol, step, conf)
 opt.par <- ls.ci.par[["ci"]][["par"]]
 opt.ll <- max(ls.ci.par[["ci"]][["max"]])
-
-# EM CADA RODADA DO WHILE, A FUNÇÃO DEVE VERIFICAR OS LIMITES TEÓRICOS DOS PARÂMETRO E DA GEV
-# ANTES DE SEGUIR PARA A PROXIMA ITERAÇÃO
 
 # Run again with optimal 'new.par' parameters
 rerun.ci.par <- ciprof.par(setNames(opt.par, names(par)), opt.ll, lltol, step, conf)
@@ -440,26 +474,27 @@ ggplot(proflik, aes(x = q_10, y = loglik)) +
   # geom_hline()
   theme_bw()
 
-# rerun.ci.par$profile %>%
-ls.ci.par$profile %>%
-  filter(parname == "alpha") %>% 
-  ggplot(aes(x = par, y = loglik)) +
-  geom_line() +
-  geom_hline(yintercept = max.ll - qchisq(conf, 1)/2, color = "red") +
-  theme_bw()
 
-profile.antes <- ls.ci.par$profile
-profile <- profile.antes[profile.antes$parname == "kappa", c("par", "loglik")]
 
-teste.spline <- splinefun(
-  x = profile$par,
-  y = profile$loglik
-)
+# Figura
+plot.par <- "alpha"
+profile <- rerun.ci.par$profile
+ci.par <- rerun.ci.par$ci
+profile.par <- profile[profile$parname == plot.par,]
 
-ggplot(profile) +
-  geom_smooth(aes(x = par, y = loglik))
-
-nls.fit <- nls(loglik~par, profile)
-
-spline <- smooth.spline(profile, cv = TRUE)
-plot(profile)
+ggplot() +
+  geom_vline(xintercept = ci.par[ci.par$parname == plot.par, "par"], linetype = "dashed", color = "grey50") +
+  geom_line(aes(x = par, y = loglik), profile.par, linewidth = 0.3, color = "grey40") +
+  geom_hline(yintercept = ci.par[ci.par$parname == plot.par, "lim"], color = "red") +
+  # geom_point(aes(x = par, y = loglik), profile.par, shape = 1, alpha = 0.3) +
+  geom_point(aes(x = ci_lower, y = lim), ci.par[ci.par$parname == plot.par,], color = "red", size = 4, shape = 4) +
+  geom_point(aes(x = ci_upper, y = lim), ci.par[ci.par$parname == plot.par,], color = "red", size = 4, shape = 4) +
+  labs(
+    x = plot.par, y = "loglik",
+    subtitle = sprintf("Estação: %s | d: %g h", gg, d),
+  ) +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Consolas"),
+    panel.grid = element_blank()
+  )
