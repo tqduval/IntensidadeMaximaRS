@@ -146,22 +146,22 @@ roots.proflik <- function(step, conf, par, i, ll){
     }
     
     val.i <- val.i + step
-    delta.ll <- (ll - last.ll)/step # how is the algorithm jumping around
+    slope <- (ll - last.ll)/step    # how is the algorithm jumping around
     last.par <- full
     current.iter <- length(result) + 1
-    result[[current.iter]] <- c(full, ll, delta.ll)
+    result[[current.iter]] <- c(full, ll, slope)
     
     message(
       sprintf(
-        "ci %-5s | %s: %0.3f | loglik: %0.3f", 
+        "ci %-5s | %s: %0.3f | ll: %0.3f | slope: %0.3f", 
         ifelse(step < 0, "lower", "upper"), 
-        names(par)[i], val.i, ll)
+        names(par)[i], val.i, ll, slope)
     )
     
   } # end of 'while' search
   
   prof.par <- do.call(rbind, result)
-  colnames(prof.par) <- c(names(par), "loglik", "delta_ll")
+  colnames(prof.par) <- c(names(par), "loglik", "slope")
   
   return(prof.par)
   
@@ -174,7 +174,7 @@ roots.proflik <- function(step, conf, par, i, ll){
 # estimated confidence intervals;
 # 2) a matrix with all evaluated values of the parameters and respective profile values; and
 # 3) a vector with optimal profile log-likelihood parameters and its maximum.
-ciprof.par <- function(par, max.ll, lltol, step, conf){
+ciprof.par <- function(par, max.ll, step, conf, lltol, slopetol = 30, smoothtol = 10){
 
   # Loop through all GEV parameters
   ls.profile <- lapply(X = seq_along(par), FUN = function(i){
@@ -183,8 +183,18 @@ ciprof.par <- function(par, max.ll, lltol, step, conf){
     left <- roots.proflik(-step, conf, par, i, max.ll)
     right <- roots.proflik(step, conf, par, i, max.ll)
     proflik <- rbind(left, right)
+    proflik <- proflik[order(proflik[,i]),] # order profile
+    slope <- proflik[,"slope"]           # extract profile slope
+    smoothness <- abs(c(0, diff(slope))) # extract profile smoothness
+    
+    # Filter out any unstable ll estimates
+    valid.idx <- which(abs(slope) < slopetol & smoothness < smoothtol)
+    # proflik0 <- proflik
+    proflik <- proflik[valid.idx,] 
     ci.lower <- min(proflik[,i]) # lower CI limit
     ci.upper <- max(proflik[,i]) # upper CI limit
+
+    # TERMINAR DE ARRUMAR, A SEGUNDA RODADA ESTÁ RETORNANDO QUASE NENHUM VALOR
 
     # Update optimal parameters if proflik finds a higher optimal point
     ll.max.proflik <- max(proflik[,"loglik"])
@@ -198,9 +208,9 @@ ciprof.par <- function(par, max.ll, lltol, step, conf){
     }
 
     parname <- names(par)[i]
-    profile <- proflik[,c(parname, "loglik", "delta_ll")]
-    profile <- profile[order(profile[,1]),] # order by parameter value
-    colnames(profile) <- c("par", "loglik", "delta_ll")
+    profile <- proflik[,c(parname, "loglik", "slope")]
+    # profile <- profile[order(profile[,1]),] # order by parameter value
+    colnames(profile) <- c("par", "loglik", "slope")
     out <- list(
       ci = data.frame(
         gauge_code = gg,
@@ -365,8 +375,8 @@ data <- df.imax %>%
   
 prior.info <- NULL
 # prior.info <- c(0.0178, 0.0627)
-gg <- "A801"
-# gg <- "A812"
+# gg <- "A801"
+gg <- "A812"
 data.gg <- data[data$gauge_code == gg, ]
 cols <- names(data)
 maxit <- 1e8
@@ -378,8 +388,7 @@ y.id <- data.gg %>%
   as.matrix() %>%
   na.omit()
 
-# d <- 10
-d <- 1
+d <- 20
 y <- y.id[,d]
 
 # Define confidence level and a search step
@@ -400,8 +409,8 @@ npar <- length(par)
 convergence <- fit$convergence
 max.ll <- -fit$value
 
-# Test run
-ls.ci.par <- ciprof.par(par, max.ll, lltol, step, conf)
+# First run
+ls.ci.par <- ciprof.par(par, max.ll, step, conf, lltol, slopetol = 50, smoothtol = 15)
 opt.par <- ls.ci.par[["ci"]][["par"]]
 opt.ll <- max(ls.ci.par[["ci"]][["max"]])
 
@@ -478,15 +487,16 @@ ggplot(proflik, aes(x = q_10, y = loglik)) +
 
 # Figura
 plot.par <- "alpha"
-profile <- rerun.ci.par$profile
-ci.par <- rerun.ci.par$ci
+# profile <- rerun.ci.par$profile
+profile <- ls.ci.par$profile
+# ci.par <- rerun.ci.par$ci
+ci.par <- ls.ci.par$ci
 profile.par <- profile[profile$parname == plot.par,]
-
 ggplot() +
   geom_vline(xintercept = ci.par[ci.par$parname == plot.par, "par"], linetype = "dashed", color = "grey50") +
   geom_line(aes(x = par, y = loglik), profile.par, linewidth = 0.3, color = "grey40") +
   geom_hline(yintercept = ci.par[ci.par$parname == plot.par, "lim"], color = "red") +
-  # geom_point(aes(x = par, y = loglik), profile.par, shape = 1, alpha = 0.3) +
+  geom_point(aes(x = par, y = loglik), profile.par, shape = 1, alpha = 0.3) +
   geom_point(aes(x = ci_lower, y = lim), ci.par[ci.par$parname == plot.par,], color = "red", size = 4, shape = 4) +
   geom_point(aes(x = ci_upper, y = lim), ci.par[ci.par$parname == plot.par,], color = "red", size = 4, shape = 4) +
   labs(
