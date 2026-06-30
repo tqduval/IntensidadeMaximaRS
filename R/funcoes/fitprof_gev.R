@@ -40,17 +40,15 @@ prof.grad.gev <- function(par.free, which.par, par.value, y, prior.info){
 # and estimates its Confidence Intervals to a given confidence level 'conf'.
 # It may happen that this function ends up finding 'better' optimal parameters
 # than the original fgev() function
-roots.proflik <- function(step, conf, par, i, ll){
+roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
   
   val.i <- par[[i]]
   npar <- length(par)
   last.par <- par
   lim <- ll - qchisq(conf, 1)/2
+  parnames <- c("xi", "alpha", "kappa")
   
   result <- list()
-  
-  lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
-  upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
   
   while(ll > lim && !is.na(ll)){
     
@@ -151,17 +149,18 @@ roots.proflik <- function(step, conf, par, i, ll){
     current.iter <- length(result) + 1
     result[[current.iter]] <- c(full, ll, slope)
     
-    message(
-      sprintf(
-        "ci %-5s | %s: %0.3f | ll: %0.3f | slope: %0.3f", 
-        ifelse(step < 0, "lower", "upper"), 
-        names(par)[i], val.i, ll, slope)
-    )
+    # message(
+    #   sprintf(
+    #     "%s | ci %-5s | %s: %0.3f | ll: %0.3f | slope: %0.3f", 
+    #     gg, ifelse(step < 0, "lower", "upper"), 
+    #     parnames[i], val.i, ll, slope)
+    # )
     
   } # end of 'while' search
   
   prof.par <- do.call(rbind, result)
-  colnames(prof.par) <- c(names(par), "loglik", "slope")
+
+  colnames(prof.par) <- c(parnames, "loglik", "slope")
   
   return(prof.par)
   
@@ -174,75 +173,90 @@ roots.proflik <- function(step, conf, par, i, ll){
 # estimated confidence intervals;
 # 2) a matrix with all evaluated values of the parameters and respective profile values; and
 # 3) a vector with optimal profile log-likelihood parameters and its maximum.
-ciprof.par <- function(par, max.ll, step, conf, lltol, slopetol = 30, smoothtol = 10){
+ciprof.par <- function(y, par, max.ll, step, conf, lltol, gg, d){
+
+  lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
+  upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
+  parnames <- c("xi", "alpha", "kappa")
 
   # Loop through all GEV parameters
   ls.profile <- lapply(X = seq_along(par), FUN = function(i){
 
     # Find values to the left and to the right of the original 'par[i]' estimate
-    left <- roots.proflik(-step, conf, par, i, max.ll)
-    right <- roots.proflik(step, conf, par, i, max.ll)
+    left <- roots.proflik(y, -step, conf, par, i, max.ll, lower, upper)
+    right <- roots.proflik(y, step, conf, par, i, max.ll, lower, upper)
     proflik <- rbind(left, right)
     proflik <- proflik[order(proflik[,i]),] # order profile
-    slope <- proflik[,"slope"]           # extract profile slope
-    smoothness <- abs(c(0, diff(slope))) # extract profile smoothness
-    
-    # Filter out any unstable ll estimates
-    valid.idx <- which(abs(slope) < slopetol & smoothness < smoothtol)
-    # proflik0 <- proflik
-    proflik <- proflik[valid.idx,] 
+    slope <- proflik[,"slope"]   # extract profile slope
     ci.lower <- min(proflik[,i]) # lower CI limit
     ci.upper <- max(proflik[,i]) # upper CI limit
 
-    # TERMINAR DE ARRUMAR, A SEGUNDA RODADA ESTÁ RETORNANDO QUASE NENHUM VALOR
+    # Update optimal parameters if proflik finds a higher optimal point
+    # ll.max.proflik <- max(proflik[,"loglik"])
+    # ll.dif <- abs((ll.max.proflik - max.ll)/max.ll) <= lltol
+    # if(isFALSE(ll.dif)){
+    #   message <- 1 # updated parameters
+    #   out.par <- unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar)])
+    # } else{
+    #   message <- 0 # original fgev() parameters
+    #   out.par <- par
+    # }
 
     # Update optimal parameters if proflik finds a higher optimal point
     ll.max.proflik <- max(proflik[,"loglik"])
-    ll.dif <- abs((ll.max.proflik - max.ll)/max.ll) <= lltol
-    if(isFALSE(ll.dif)){
-      message <- 1 # updated parameters
-      out.par <- unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar)])
+    par.max.proflik <- proflik[which.max(proflik[,"loglik"]), seq_len(length(par))]
+    if(abs(par.max.proflik[i] - par[i])/par[i] > lltol){
+      message <- 1               # new max found
+      out.ll <- ll.max.proflik   # update max ll
+      out.par <- par.max.proflik # update parameters
     } else{
-      message <- 0 # original fgev() parameters
-      out.par <- par
+      message <- 0     # keeping same max
+      out.ll <- max.ll # same max ll
+      out.par <- par   # same parameters
     }
 
-    parname <- names(par)[i]
-    profile <- proflik[,c(parname, "loglik", "slope")]
-    # profile <- profile[order(profile[,1]),] # order by parameter value
+    profile <- proflik[,c(parnames[i], "loglik", "slope")]
     colnames(profile) <- c("par", "loglik", "slope")
     out <- list(
       ci = data.frame(
         gauge_code = gg,
         d = d,
-        parname = parname,
+        parname = parnames[i],
         par = unname(par[i]),
         ci_lower = ci.lower,
         ci_upper = ci.upper,
-        max = max.ll,
-        lim = max.ll - qchisq(conf, 1)/2,
+        rel_width = (ci.upper - ci.lower)/abs(out.par[i]),
+        max_ll = max.ll,                  # original max ll
+        lim = max.ll - qchisq(conf, 1)/2, # original chi-squared limit
+        found_max = out.ll, # max(max.ll, max(proflik[,"loglik"]))
         prior = deparse(prior.info),
+        n_profile = nrow(proflik),
         message = message, # if message == 1, 'prof.pars' should be checked
         conf = conf,
         step = step
       ),
-      prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar + 1)]),
-      profile = cbind(parname = parname, as.data.frame(profile))
+      prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(length(par) + 1)]), # + 1 pega o loglik
+      # prof.par = out.par,
+      profile = cbind(
+        gauge_code = gg, # keep as comment to avoid having to call it inside every function
+        d = d,
+        parname = parnames[i], as.data.frame(profile)
+      )
     )
 
     return(out)
 
   }) # fim 'ls.profile'
 
-  names(ls.profile) <- names(par) # name parameters
+  # names(ls.profile) <- c("xi", "alpha", "kappa") # name parameters
 
   results <- bind_rows(lapply(ls.profile, `[[`, "ci"))
   prof.par <- bind_rows(lapply(ls.profile, `[[`, "prof.par"))
   profile <- bind_rows(lapply(ls.profile, `[[`, "profile"))
 
   if(any(results$message == 1)){
-    new.par <- unlist(prof.par[which.max(prof.par$loglik), seq_len(npar)])
-    new.max <- max(prof.par$loglik)
+    new.par <- unlist(prof.par[which.max(prof.par$loglik), seq_len(length(par))])
+    new.max <- max(profile[,"loglik"], na.rm = TRUE)
     results$par <- new.par
     results$max <- new.max
   }
@@ -325,13 +339,26 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
     opt.alpha <- last.par.free[1] # extract optimal 'alpha'
     opt.kappa <- last.par.free[2] # extract optimal 'kappa'
     opt.xi <- q0 - opt.alpha/opt.kappa*(1 - (-log(p))^opt.kappa) # rebuild optimal 'xi'
-    q0 <- q0 + step               # update quantile
+
+    # Check GEV limits
+    gev.lim <- opt.xi + opt.alpha/opt.kappa  # xi + alpha/kappa
+    if(opt.kappa < 0){
+      if(any(y < gev.lim)) ll <- NA_real_ # domain violation for Fréchet law
+    }
+    if(opt.kappa > 0){
+      if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
+    }
+
     current.iter <- length(result) + 1 # update counter
-    result[[current.iter]] <- c(q0, opt.xi, opt.alpha, opt.kappa, ll)
-    message(sprintf(
-      "q: %0.3f mm/h | ll: %0.3f | method: %s | convergence: %g",
-      q0, ll, ifelse(is.na(gradient), "nm    ", "lbfgsb"), fit.prof[["convergence"]]
-    ))
+    result[[current.iter]] <- c(q0, opt.xi, opt.alpha, opt.kappa, ll) # save current iteration
+    q0 <- q0 + step                    # update quantile value
+
+    # message(sprintf(
+    #   "%s | rp: %g | q: %0.3f mm/h | ll: %0.3f | conv: %g",
+    #   gg, rp, q0, ll,
+    #   # ifelse(is.na(gradient), "nm    ", "lbfgsb"), 
+    #   fit.prof[["convergence"]]
+    # ))
 
   }
 
@@ -344,8 +371,74 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
 
 }
 
-# 
-ciprof.q <- function(par, return.period, max.ll, step, conf){
+# @title Estimate profile likelihood confidence intervals for quantiles
+# @details This functions calls `roots.proflik.q()` and estimates confidence intervals
+# for quantiles It's called inside an `lapply()` loop and returns a list with:
+# 1) a row tbl_df with original parameters from the log-likelihood maximization and 
+# estimated confidence intervals;
+# 2) a matrix with all evaluated values of the parameters and respective profile values
+ciprof.q <- function(y, par, return.period, max.ll, step, conf, gg, d){
+
+  # Limites inferior e superior
+  lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
+  upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
+
+  # Setup an lapply loop to go through return periods
+  ls.profile <- lapply(return.period, function(rp){
+    
+    # Find roots
+    p <- 1 - 1/rp                 # later: this is being done twice: here and inside roots.proflik.q()
+    q0 <- qgev(unname(par), p)    # original quantile for 'p'
+    step.q <- step*abs(q0)        # new step relative to quantile value ?
+    left <- roots.proflik.q(-step.q, conf, par, max.ll, rp, y, prior.info, lower, upper)
+    right <- roots.proflik.q(step.q, conf, par, max.ll, rp, y, prior.info, lower, upper)
+    proflik <- rbind(left, right)
+    
+    q.name <- paste0("q_", rp)
+    ci.lower <- min(proflik[,q.name]) # lower CI limit
+    ci.upper <- max(proflik[,q.name]) # upper CI limit
+
+    if(nrow(proflik) <= 20){
+      message <- 1 # possible error, few profile values
+    } else{
+      message <- 0 # might be ok, idk, check 'kappa' values
+    }
+
+    profile <- proflik[,c(q.name, "loglik")]
+    colnames(profile) <- c("q", "loglik")
+    out <- list(
+      ci = data.frame(
+        gauge_code = gg,
+        d = d,
+        return_period = rp,
+        q = q0,
+        ci_lower = ci.lower,
+        ci_upper = ci.upper,
+        max = max.ll,
+        lim = max.ll - qchisq(conf, 1)/2,
+        prior = deparse(prior.info),
+        n_profile = nrow(proflik),
+        flag_shape = if(abs(par[3]) > 0.5) 1 else 0, # flag '1' whenever |kappa| is larger than 0.5
+        # algo = algo,
+        conf = conf,
+        step = step
+      ),
+      # prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar + 1)]),
+      profile = cbind(
+        gauge_code = gg, 
+        return_period = rp, as.data.frame(profile)
+      )
+    )
+
+    return(out)
+    
+  }) # fim 'ls.profile'
+
+  results <- bind_rows(lapply(ls.profile, `[[`, "ci")) # bind 'ci' rows for each 'rp'
+  # prof.par <- bind_rows(lapply(ls.profile, `[[`, "prof.par")) # bind parameter rows
+  profile <- bind_rows(lapply(ls.profile, `[[`, "profile")) # bind 'profile' matrices
+
+  list(ci = results, profile = profile)
 
 }
 
@@ -353,10 +446,143 @@ ciprof.q <- function(par, return.period, max.ll, step, conf){
 
 fitprof.gev <- function(
   data, prior.info = NULL,
-  durations, return.period,
+  return.period,
   cols = c("gauge_code", "year", "duration", "imax"),
-  conf = 0.95, lltol = 0.1, step = 0.01
-){}
+  conf = 0.95, lltol = 0.005, step = 0.005
+){
+
+  #### CHECAGENS ----
+
+  if(!is.list(data) || length(data) == 0){
+    stop("`data` must be a non-empty list with data.frames.")
+    warning("`cols` must contain column names with 'gauge_code', 'year', 'duration', and 'imax' information in this order.")
+  }
+  if(!is.numeric(return.period) || length(return.period) == 0) stop("`return.period` must have one or more numeric values.")
+  if(!length(prior.info) %in% c(0, 2)) stop("`prior.info` dever ser 'NULL' ou um vetor de comprimento 2.")
+  if(!is.numeric(step) || length(step) != 1 | step <= 0) stop("Profile roots search `step` must be a positive number.")
+  if(!is.numeric(conf) || length(conf) != 1 || conf <= 0 || conf >= 1) stop("Confidence level `conf` must be between (0,1).")
+  if(!is.numeric(lltol) || length(lltol) != 1 || lltol <= 0) stop("Profile likelihood change tolerance `lltol` musc be a positive number.")
+  data.cols <- colnames(data[[1]])
+  missing.cols <- setdiff(cols, data.cols)
+  if(length(missing.cols) > 0) stop(sprintf("Missing columns in `data`: %s", paste(missing.cols, collapse = ", ")))
+
+  #### CÁLCULOS ----
+
+  message("Fitting GEV by durations, estimating quantiles and confidence intervals with 'profile likelihood'.")
+  message(">> No. gauges: ", length(data))
+  # message(">> Durations [h]: ", paste(durations, collapse = ", "))
+  message(">> Return periods [years]: ", paste(return.period, collapse = ", "))
+  message(">> Search step: ", step)
+  message(">> Confidence level for profile likelihood CIs: ", paste0(conf*100, "%"))
+
+  ls.res <- pbapply::pblapply(data, function(data.gg){
+
+    gg <- unique(data.gg[[cols[1]]])
+    y.id <- data.gg %>%
+      pivot_wider(names_from = cols[3], values_from = cols[4], names_prefix = "d_") %>%
+      arrange(cols[2]) %>%
+      select(-c(cols[1], cols[2])) %>%
+      as.matrix() %>%
+      na.omit()
+  
+    # Estimate parameters and quantiles with profile likelihood confidence intervals
+    # for every duration in 'y.id'
+    # ls.prof.d <- apply(X = y.id, 2, function(y){
+    ds <- as.integer(gsub("d_", "", colnames(y.id))) # loop through durations instead of y.id columns
+    ls.prof.d <- lapply(ds, function(d){
+  
+      tryCatch({
+  
+        # Original optimal parameters and maximum
+        y <- y.id[,d]
+        fit <- fgev(y, prior.info)
+        par <- fit$par
+        npar <- length(par)
+        convergence <- fit$convergence
+        max.ll <- -fit$value
+      
+        # Run profile likelihood
+        ls.ci.par <- ciprof.par(
+          y = y, 
+          par = par, 
+          max.ll = max.ll,
+          step = step, 
+          conf = conf, 
+          lltol = lltol,
+          gg, d
+        )
+        opt.par <- ls.ci.par[["ci"]][["par"]]
+        opt.ll <- max(ls.ci.par[["ci"]][["found_max"]])
+      
+        rerun.ci.par <- ciprof.par(
+          y = y,
+          par = opt.par,
+          max.ll = opt.ll,
+          step = step,
+          conf = conf,
+          lltol = lltol,
+          gg, d
+        )
+        
+        # Run profile likelihood for quantiles
+        opt.par <- rerun.ci.par[["ci"]][["par"]]
+        opt.ll <- max(rerun.ci.par[["ci"]][["found_max"]])
+        ls.ci.q <- ciprof.q(
+          y = y,
+          par = opt.par,
+          return.period = return.period,
+          max.ll = opt.ll, 
+          step = step, 
+          conf = conf,
+          gg, d
+        )
+      
+        return(list(par = rerun.ci.par, quantiles = ls.ci.q))
+  
+      }, error = function(e){
+  
+        warning(sprintf("Gauge %s | duration %s failed: %s", gg, d, conditionMessage(e)))
+        return(NULL)
+  
+      })
+  
+    })
+  
+    ls.prof.d <- Filter(Negate(is.null), ls.prof.d)
+    if(length(ls.prof.d) == 0) stop("No duration converged for this gauge.")
+  
+    ls.par <- lapply(ls.prof.d, `[[`, "par")             # extract parameters list
+    ls.quantiles <- lapply(ls.prof.d, `[[`, "quantiles") # extract quantiles list
+    ci.par <- bind_rows(lapply(ls.par, `[[`, "ci"))      # extract paramaters 'ci' data.frame 
+    ci.q <- bind_rows(lapply(ls.quantiles, `[[`, "ci"))  # extract quantiles 'ci' data.frame
+    prof.par <- bind_rows(lapply(ls.par, `[[`, "profile"))     # extract parameters profile likelihood
+    prof.q <- bind_rows(lapply(ls.quantiles, `[[`, "profile")) # extract quantiles profile likelihood
+  
+    return(list(
+      ci.par = ci.par, 
+      ci.q = ci.q, 
+      prof.par = prof.par, 
+      prof.q = prof.q
+    ))
+  
+  })
+  
+  
+  # Bind everything again
+  ci.par <- bind_rows(lapply(ls.res, `[[`, "ci.par")); rownames(ci.par) <- NULL
+  ci.q <- bind_rows(lapply(ls.res, `[[`, "ci.q"))
+  prof.par <- bind_rows(lapply(ls.res, `[[`, "prof.par"))
+  prof.q <- bind_rows(lapply(ls.res, `[[`, "prof.q"))
+
+  return(list(
+    par = ci.par,
+    idf = ci.q,
+    prof.par = prof.par,
+    prof.q = prof.q
+  ))
+
+}
+
 
 # TEST FUNCTION ----------------------------------------------------------
 
@@ -374,29 +600,28 @@ data <- df.imax %>%
   select(gauge_code, wateryear, d, imax)
   
 prior.info <- NULL
-# prior.info <- c(0.0178, 0.0627)
-# gg <- "A801"
-gg <- "A812"
-data.gg <- data[data$gauge_code == gg, ]
 cols <- names(data)
 maxit <- 1e8
+# prior.info <- c(0.0178, 0.0627)
+# gg <- "A801"
+# gg <- "A801"
+# gg <- "430350901A"
+# data.gg <- data[data$gauge_code == gg, ]
 
-y.id <- data.gg %>%
-  pivot_wider(names_from = d, values_from = imax, names_prefix = "d_") %>%
-  arrange(wateryear) %>%
-  select(-c(gauge_code, wateryear)) %>%
-  as.matrix() %>%
-  na.omit()
+# y.id <- data.gg %>%
+#   pivot_wider(names_from = d, values_from = imax, names_prefix = "d_") %>%
+#   arrange(wateryear) %>%
+#   select(-c(gauge_code, wateryear)) %>%
+#   as.matrix() %>%
+#   na.omit()
 
-d <- 20
-y <- y.id[,d]
+# d <- 1
+# y <- y.id[,d]
 
 # Define confidence level and a search step
 conf <- 0.95
-lltol <- 0.1   # stablish a tolerance for differences between fgev-ll and proflik-ll
-# step <- 0.0025
-step <- 0.005 # search step
-# step <- 0.01
+lltol <- 0.005 # stablish a tolerance for differences between fgev-ll and proflik-ll
+step <- 0.005
 
 
 ## PARÂMETROS ------------------------------------------------------------
@@ -409,88 +634,24 @@ npar <- length(par)
 convergence <- fit$convergence
 max.ll <- -fit$value
 
-# First run
-ls.ci.par <- ciprof.par(par, max.ll, step, conf, lltol, slopetol = 50, smoothtol = 15)
+# Run profile likelihood
+ls.ci.par <- ciprof.par(par, max.ll, step, conf, lltol)
 opt.par <- ls.ci.par[["ci"]][["par"]]
-opt.ll <- max(ls.ci.par[["ci"]][["max"]])
+opt.ll <- max(ls.ci.par[["ci"]][["found_max"]])
 
-# Run again with optimal 'new.par' parameters
-rerun.ci.par <- ciprof.par(setNames(opt.par, names(par)), opt.ll, lltol, step, conf)
-opt.par <- setNames(rerun.ci.par[["ci"]][["par"]], names(par))
-opt.ll <- max(rerun.ci.par[["ci"]][["max"]])
-lim.par <- opt.ll - qchisq(conf, 1)/2 # limite de definição dos ICs
-
-## QUANTIS ---------------------------------------------------------------
-
-# Define durations and return periods
-# durations <- c(1, 6, 12, 24) # durations is already set as 'd'
-return.period <- c(10, 20, 50)
-probs <- 1 - 1/return.period
-
-par.free <- opt.par[-1]
-p <- probs[1]
-rp <- return.period[1]
-q0 <- qgev(opt.par, 1 - 1/rp)
-ll <- opt.ll
-# rp must have only one value
-
-# Limites inferior e superior
-lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
-upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
-
-# Setup an lapply loop to go through return periods
-teste <- lapply(return.period, function(rp){
-  
-  # Find roots
-  p <- 1 - 1/rp                 # later: this is being done twice: here and inside roots.proflik.q()
-  q0 <- qgev(unname(opt.par), p)    # original quantile for 'p'
-  left <- roots.proflik.q(-step, conf, opt.par, ll, rp, y, prior.info, lower, upper)
-  right <- roots.proflik.q(step, conf, opt.par, ll, rp, y, prior.info, lower, upper)
-  proflik <- rbind(left, right)
-  
-  q.name <- paste0("q_", rp)
-  ci.lower <- min(proflik[,q.name]) # lower CI limit
-  ci.upper <- max(proflik[,q.name]) # upper CI limit
-
-  profile <- proflik[,c(q.name, "loglik")]
-  colnames(profile) <- c("q", "loglik")
-  out <- list(
-    ci = data.frame(
-      gauge_code = gg,
-      d = d,
-      return_period = rp,
-      q = q0,
-      ci_lower = ci.lower,
-      ci_upper = ci.upper,
-      max = max.ll,
-      prior = deparse(prior.info),
-      # algo = algo,
-      conf = conf,
-      step = step
-    ),
-    # prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar + 1)]),
-    profile = cbind(return_period = rp, as.data.frame(profile))
-  )
-
-  return(out)
-  
-})
-
-proflik <- as_tibble(rbind(left, right))
-
-ggplot(proflik, aes(x = q_10, y = loglik)) +
-  geom_line() +
-  # geom_hline()
-  theme_bw()
-
-
+rerun.ci.par <- ciprof.par(
+  y = y,
+  par = opt.par,
+  max.ll = opt.ll,
+  step = step,
+  conf = conf,
+  lltol = lltol
+)
 
 # Figura
-plot.par <- "alpha"
-# profile <- rerun.ci.par$profile
-profile <- ls.ci.par$profile
-# ci.par <- rerun.ci.par$ci
-ci.par <- ls.ci.par$ci
+plot.par <- "kappa"
+profile <- rerun.ci.par$profile
+ci.par <- rerun.ci.par$ci
 profile.par <- profile[profile$parname == plot.par,]
 ggplot() +
   geom_vline(xintercept = ci.par[ci.par$parname == plot.par, "par"], linetype = "dashed", color = "grey50") +
@@ -508,3 +669,238 @@ ggplot() +
     text = element_text(family = "Consolas"),
     panel.grid = element_blank()
   )
+
+
+## QUANTIS ---------------------------------------------------------------
+
+# Define durations and return periods
+# durations <- c(1, 6, 12, 24) # durations is already set as 'd'
+return.period <- c(10, 20, 50, 100, 200)
+
+# Run profile likelihood for quantiles
+opt.par <- rerun.ci.par[["ci"]][["par"]]
+opt.ll <- max(rerun.ci.par[["ci"]][["found_max"]])
+ls.ci.q <- ciprof.q(opt.par, return.period, opt.ll, step, conf)
+
+# Figura
+plot.rp <- return.period[1]
+profile.q <- ls.ci.q$profile
+ci.q <- ls.ci.q$ci
+profile.q.rp <- profile.q[profile.q$return_period == plot.rp,]
+ggplot() +
+  geom_vline(xintercept = ci.q[ci.q$return_period == plot.rp, "q"], linetype = "dashed", color = "grey50") +
+  geom_line(aes(x = q, y = loglik), profile.q.rp, linewidth = 0.3, color = "grey40") +
+  geom_hline(yintercept = ci.q[ci.q$return_period == plot.rp, "lim"], color = "red") +
+  geom_point(aes(x = q, y = loglik), profile.q.rp, shape = 1, alpha = 0.3) +
+  geom_point(aes(x = ci_lower, y = lim), ci.q[ci.par$return_period == plot.rp,], color = "red", size = 4, shape = 4) +
+  geom_point(aes(x = ci_upper, y = lim), ci.q[ci.par$return_period == plot.rp,], color = "red", size = 4, shape = 4) +
+  labs(
+    x = "q", y = "loglik",
+    subtitle = sprintf("Estação: %s | d: %g h | Tempo de retorno: %g anos", gg, d, plot.rp),
+  ) +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Consolas"),
+    panel.grid = element_blank()
+  )
+
+  
+# TEST CI FOR PAR AND QUANTILES FOR EVERY DURATION -----------------------
+
+conf <- 0.95
+lltol <- 0.005 # stablish a tolerance for differences between fgev-ll and proflik-ll
+step <- 0.005
+# return.period <- c(10, 20, 50, 100, 200)
+return.period <- c(10, 20, 50, 100, 200)
+
+# ls.prof.d <- apply(X = y.id, 2, function(y){
+ds <- as.integer(gsub("d_", "", colnames(y.id)))
+ls.prof.d <- lapply(ds, function(d){
+
+  tryCatch({
+
+    # Original optimal parameters and maximum
+    y <- y.id[,d]
+    fit <- fgev(y, prior.info)
+    par <- fit$par
+    npar <- length(par)
+    convergence <- fit$convergence
+    max.ll <- -fit$value
+  
+    # Run profile likelihood
+    ls.ci.par <- ciprof.par(
+      y = y, 
+      par = par, 
+      max.ll = max.ll,
+      step = step, 
+      conf = conf, 
+      lltol = lltol,
+      gg, d
+    )
+    opt.par <- ls.ci.par[["ci"]][["par"]]
+    opt.ll <- max(ls.ci.par[["ci"]][["found_max"]])
+  
+    rerun.ci.par <- ciprof.par(
+      y = y,
+      par = opt.par,
+      max.ll = opt.ll,
+      step = step,
+      conf = conf,
+      lltol = lltol,
+      gg, d
+    )
+    
+    # Run profile likelihood for quantiles
+    opt.par <- rerun.ci.par[["ci"]][["par"]]
+    opt.ll <- max(rerun.ci.par[["ci"]][["found_max"]])
+    ls.ci.q <- ciprof.q(
+      y = y,
+      par = opt.par,
+      return.period = return.period,
+      max.ll = opt.ll, 
+      step = step, 
+      conf = conf,
+      gg, d
+    )
+  
+    return(list(par = rerun.ci.par, quantiles = ls.ci.q))
+
+  }, error = function(e){
+
+    warning(sprintf("%s | Processing failed at d = %s h: %s", gg, d, conditionMessage(e)))
+    return(NULL)
+
+  })
+
+})
+
+ls.prof.d <- Filter(Negate(is.null), ls.prof.d)
+if(length(ls.prof.d) == 0) stop("No duration converged for this")
+
+ls.par <- lapply(ls.prof.d, `[[`, "par")             # extract parameters list
+ls.quantiles <- lapply(ls.prof.d, `[[`, "quantiles") # extract quantiles list
+ci.par <- bind_rows(lapply(ls.par, `[[`, "ci"))      # extract paramaters 'ci' data.frame 
+ci.q <- bind_rows(lapply(ls.quantiles, `[[`, "ci"))  # extract quantiles 'ci' data.frame
+prof.par <- bind_rows(lapply(ls.par, `[[`, "profile"))     # extract parameters profile likelihood
+prof.q <- bind_rows(lapply(ls.quantiles, `[[`, "profile")) # extract quantiles profile likelihood
+
+
+data <- split(data, data$gauge_code)
+# prior.info <- c(0.0178, 0.0627)
+
+ls.res <- pbapply::pblapply(data[c(1,2)], function(data.gg){
+
+  gg <- unique(data.gg[[cols[1]]])
+  y.id <- data.gg %>%
+    pivot_wider(names_from = cols[3], values_from = cols[4], names_prefix = "d_") %>%
+    arrange(cols[2]) %>%
+    select(-c(cols[1], cols[2])) %>%
+    as.matrix() %>%
+    na.omit()
+
+  # Estimate parameters and quantiles with profile likelihood confidence intervals
+  # for every duration in 'y.id'
+  # ls.prof.d <- apply(X = y.id, 2, function(y){
+  ds <- as.integer(gsub("d_", "", colnames(y.id))) # loop through durations instead of y.id columns
+  ls.prof.d <- lapply(ds, function(d){
+
+    tryCatch({
+
+      # Original optimal parameters and maximum
+      y <- y.id[,d]
+      fit <- fgev(y, prior.info)
+      par <- fit$par
+      npar <- length(par)
+      convergence <- fit$convergence
+      max.ll <- -fit$value
+    
+      # Run profile likelihood
+      ls.ci.par <- ciprof.par(
+        y = y, 
+        par = par, 
+        max.ll = max.ll,
+        step = step, 
+        conf = conf, 
+        lltol = lltol,
+        gg, d
+      )
+      opt.par <- ls.ci.par[["ci"]][["par"]]
+      opt.ll <- max(ls.ci.par[["ci"]][["found_max"]])
+    
+      rerun.ci.par <- ciprof.par(
+        y = y,
+        par = opt.par,
+        max.ll = opt.ll,
+        step = step,
+        conf = conf,
+        lltol = lltol,
+        gg, d
+      )
+      
+      # Run profile likelihood for quantiles
+      opt.par <- rerun.ci.par[["ci"]][["par"]]
+      opt.ll <- max(rerun.ci.par[["ci"]][["found_max"]])
+      ls.ci.q <- ciprof.q(
+        y = y,
+        par = opt.par,
+        return.period = return.period,
+        max.ll = opt.ll, 
+        step = step, 
+        conf = conf,
+        gg, d
+      )
+    
+      return(list(par = rerun.ci.par, quantiles = ls.ci.q))
+
+    }, error = function(e){
+
+      warning(sprintf("Gauge %s | duration %s failed: %s", gg, d, conditionMessage(e)))
+      return(NULL)
+
+    })
+
+  })
+
+  ls.prof.d <- Filter(Negate(is.null), ls.prof.d)
+  if(length(ls.prof.d) == 0) stop("No duration converged for this gauge.")
+
+  ls.par <- lapply(ls.prof.d, `[[`, "par")             # extract parameters list
+  ls.quantiles <- lapply(ls.prof.d, `[[`, "quantiles") # extract quantiles list
+  ci.par <- bind_rows(lapply(ls.par, `[[`, "ci"))      # extract paramaters 'ci' data.frame 
+  ci.q <- bind_rows(lapply(ls.quantiles, `[[`, "ci"))  # extract quantiles 'ci' data.frame
+  prof.par <- bind_rows(lapply(ls.par, `[[`, "profile"))     # extract parameters profile likelihood
+  prof.q <- bind_rows(lapply(ls.quantiles, `[[`, "profile")) # extract quantiles profile likelihood
+
+  return(list(
+    par = ci.par, 
+    idf = ci.q, 
+    prof.par = prof.par, 
+    prof.q = prof.q
+  ))
+
+})
+
+
+# Bind everything again
+ci.par <- bind_rows(lapply(ls.res, `[[`, "ci.par")); rownames(ci.par) <- NULL
+ci.q <- bind_rows(lapply(ls.res, `[[`, "ci.q"))
+prof.par <- bind_rows(lapply(ls.res, `[[`, "prof.par"))
+prof.q <- bind_rows(lapply(ls.res, `[[`, "prof.q"))
+
+
+ls.data <- split(data, data$gauge_code)
+ls.fitprof <- fitprof.gev(
+  data = ls.data,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = c("gauge_code", "wateryear", "d", "imax"),
+  conf = 0.95,
+  lltol = 0.005,
+  step = 0.005
+)
+
+saveRDS(ls.fitprof, "base/gerados/ls_fit_by_d_proflik.rds")
+
+teste
+unique(teste$gauge_code)
+n_distinct(teste$gauge_code)
