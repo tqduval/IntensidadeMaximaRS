@@ -229,7 +229,8 @@ fdgev <- function(y.id, # antes 'data.gg'
   
   # Definir limites para L-BFGS-B
   lower <- c(-Inf, 1e-6, ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6), 1e-6, 0)
-  upper <- c(Inf, Inf, ifelse(is.null(prior.info), -Inf, 0.5 - 1e-6), 1 - 1e-6, Inf)
+  # upper <- c(Inf, Inf, ifelse(is.null(prior.info), -Inf, 0.5 - 1e-6), 1 - 1e-6, Inf)
+  upper <- c(Inf, Inf, ifelse(is.null(prior.info), Inf, 0.5 - 1e-6), 1 - 1e-6, Inf)
   
   # Parâmetros iniciais (chute)
   start <- start.dgev(y.id, durations, scale.inv)

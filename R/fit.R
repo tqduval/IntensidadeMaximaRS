@@ -2,7 +2,7 @@
 # PACOTES -----------------------------------------------------------------
 
 # Limpar ambiente
-rm(list = ls()); invisible nn(gc())
+rm(list = ls()); invisible(gc())
 set.seed(1234)
 
 # Pacotes
@@ -51,6 +51,8 @@ data <- df.imax %>%
          n_distinct(wateryear) >= min.yr) %>% 
   ungroup() %>% 
   select(gauge_code, wateryear, d, imax)
+
+# n_distinct(data$gauge_code) # must return 54
 
 ls.data <- split(data, data$gauge_code)
 
