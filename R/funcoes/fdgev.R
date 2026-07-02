@@ -40,6 +40,8 @@ start.dgev <- function(y.id, durations, scale.inv){
 } # fim 'start.dgev()'
 
 #' @title Função de log-verossimilhança da d-GEV
+#' ACHO QUE NÃO PRECISARIA DE UM ARGUMENTO `durations` AQUI PQ
+#' A DURAÇÃO JÁ É O NOME DAS COLUNAS DE `y.id`
 nll.dgev <- function(param, durations, y.id, prior.info){
   
   # Parâmetros iniciais

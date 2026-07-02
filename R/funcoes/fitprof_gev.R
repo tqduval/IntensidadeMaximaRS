@@ -134,15 +134,18 @@ roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
     full[i] <- val.i
     
     # Check GEV limits
-    gev.lim <- full[1] + full[2]/full[3]  # xi + alpha/kappa
+    # gev.lim <- full[1] + full[2]/full[3]  # xi + alpha/kappa
     
-    if(full[3] < 0){
-      if(any(y < gev.lim)) ll <- NA_real_ # domain violation for Fréchet law
-    }
-    if(full[3] > 0){
-      if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
-    }
+    # if(full[3] < 0){
+    #   if(any(y < gev.lim)) ll <- NA_real_ # domain violation for Fréchet law
+    # }
+    # if(full[3] > 0){
+    #   if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
+    # }
     
+    zi <- 1 - full[2]/full[3]*(y - full[1])
+    if(any(zi < 1e-6)) ll <- NA_real_
+
     val.i <- val.i + step
     slope <- (ll - last.ll)/step    # how is the algorithm jumping around
     last.par <- full
