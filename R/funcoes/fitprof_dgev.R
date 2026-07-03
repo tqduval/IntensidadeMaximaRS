@@ -186,14 +186,14 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol){
       out.par <- par   # same parameters
     }
     
-    plot(proflik[,c(parnames[i], "loglik")], type = "p")
-    segments(x0 = par[i], x1 = par[i], y0 = max.ll, y1 = max.ll - qchisq(conf, 1)/2, lty = "dashed", col = "grey50")
-    segments(min(proflik[,i], na.rm = TRUE),  
-      max(proflik[,i], na.rm = TRUE), 
-      max.ll - qchisq(conf, 1)/2,
-      max.ll - qchisq(conf, 1)/2,
-      col = "red"
-    )
+    # plot(proflik[,c(parnames[i], "loglik")], type = "p")
+    # segments(x0 = par[i], x1 = par[i], y0 = max.ll, y1 = max.ll - qchisq(conf, 1)/2, lty = "dashed", col = "grey50")
+    # segments(min(proflik[,i], na.rm = TRUE),  
+    #   max(proflik[,i], na.rm = TRUE), 
+    #   max.ll - qchisq(conf, 1)/2,
+    #   max.ll - qchisq(conf, 1)/2,
+    #   col = "red"
+    # )
   
     profile <- proflik[,c(parnames[i], "loglik", "slope")]
     colnames(profile) <- c("par", "loglik", "slope")
@@ -285,7 +285,7 @@ q.dgev.vec <- function(param, d, p){
   
 }
 
-roots.proflik.q <- function(step, q0, y.id, par, ds, duration, rp, conf, ll, lower, upper){
+roots.proflik.q <- function(step, q0, y.id, par, ds, d, rp, conf, ll, lower, upper){
 
   npar <- length(par)
   last.par.free <- par[-1]
@@ -352,7 +352,7 @@ roots.proflik.q <- function(step, q0, y.id, par, ds, duration, rp, conf, ll, low
     if(abs(kappa) < 1e-5){
       xi0 <- q0*A + alpha0*log(-log(p)) # calcular quantil Gumbel p/ evitar erro numérico
     } else{
-      xi0 <- q0*A + alpha0/kappa*(1 - (-log(p))^kappa)
+      xi0 <- q0*A - alpha0/kappa*(1 - (-log(p))^kappa)
     }
     y <- sweep(y.id, 2, A, "*")      # this is the Koutsoyiannis et al. (1998) rescaled variable
     zi <- 1 - kappa/alpha0*(y - xi0) # GEV internal variable
@@ -472,10 +472,10 @@ max.ll <- -fit$value
 
 ls.ci.par <- ciprof.par(y.id, ds, par, max.ll, conf, step, lltol)
 
-
-i <- 4 # temp
-
 # início roots.proflik.q()
+lower <- c(-Inf, 1e-6, ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6), 1e-6, 0)
+upper <- c(Inf, Inf, ifelse(is.null(prior.info), Inf, 0.5 - 1e-6), 1 - 1e-6, Inf)
+
 if(is.null(durations)){
   grid <- expand.grid(d = ds, rp = return.period) # use durations from the data given
 } else{
@@ -483,17 +483,60 @@ if(is.null(durations)){
 }
 
 # entra em um loop do comprimento de `grid`
-# d <- grid[i, "d"]
-# rp <- grid[i, "rp"]
-d <- 20
-rp <- 100
-p <- 1 - 1/rp
-q0 <- q.dgev.vec(par, d, p)
+ls.profile <- lapply(seq_len(nrow(grid)), function(i){
+  
+  # d <- grid[i, "d"]
+  # rp <- grid[i, "rp"]
+  d <- 20
+  rp <- 20
+  p <- 1 - 1/rp
+  q0 <- q.dgev.vec(par, d, p)
+  
+  left <- roots.proflik.q(-step, q0, y.id, par, ds, d, rp, conf, max.ll, lower, upper)
+  right <- roots.proflik.q(step, q0, y.id, par, ds, d, rp, conf, max.ll, lower, upper)
+  proflik <- rbind(left, right)
+  q.name <- paste0("q_", rp)
+  ci.lower <- min(proflik[,q.name], na.rm = TRUE)
+  ci.upper <- max(proflik[,q.name], na.rm = TRUE)
+  neval <- nrow(proflik)
+  
+  if(neval <= 20){
+    message <- 1 # possible error, few profile values
+  } else{
+    message <- 0 # might be ok, but check anyway
+  }
+  
+  profile <- proflik[order(proflik[,q.name]),][,c(q.name, "loglik")]
+  colnames(profile) <- c("q", "loglik")
+  out <- list(
+    ci = data.frame(
+      gauge_code = gg,
+      d = d,
+      return_period = rp,
+      q = q0,
+      ci_lower = ci.lower,
+      ci_upper = ci.upper,
+      max = max.ll,
+      lim = max.ll - qchisq(conf, 1)/2,
+      prior = deparse(prior.info),
+      n_profile = nrow(proflik),
+      flag_shape = if(abs(par[3]) > 0.5) 1 else 0, # flag '1' whenever |kappa| is larger than 0.
+      conf = conf,
+      step = step
+    ),
+    # prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(npar + 1)]),
+    profile = cbind(
+      gauge_code = gg, d = d,
+      return_period = rp, as.data.frame(profile)
+    )
+  )
+  
+  return(out)
+  
+})
 
-left <- roots.proflik.q(-step, q0, y.id, par, ds, d, rp, conf, max.ll, lower, upper)
-right <- roots.proflik.q(step, q0, y.id, par, ds, d, rp, conf, max.ll, lower, upper)
 
-proflik <- rbind(left, right)
+
 quantile.names <- colnames(proflik)
 proflik <- proflik[order(proflik[,2]),][,quantile.names[c(2,length(quantile.names))]]
 plot(proflik, type = "p", xlab = sprintf("%s (d = %g h)", quantile.names[2], d), main = gg)
