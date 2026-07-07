@@ -137,7 +137,7 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
     if(par[i] > lower[i] + step){
       left <- roots.proflik(y.id, ds, -step, conf, par, i, max.ll, lower, upper)
     } else{
-      message(sprintf("Optimal `%s` is at the edge of its domain`, returning `ci_lower == par[i]`", parnames[i]))
+      # message(sprintf("Optimal `%s` is at the edge of its domain`, returning `ci_lower == par[i]`", parnames[i]))
       left <- matrix(c(par, max.ll, 0), nrow = 1)
       left[1, i] <- lower[i]
       colnames(left) <- c(parnames, "loglik", "slope")
@@ -147,7 +147,7 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
     if(par[i] < upper[i] - step){
       right <- roots.proflik(y.id, ds, step, conf, par, i, max.ll, lower, upper)
     } else{
-      message(sprintf("Optimal `%s` is at the edge of its domain`, returning `ci_upper == par[i]`", parnames[i]))
+      # message(sprintf("Optimal `%s` is at the edge of its domain`, returning `ci_upper == par[i]`", parnames[i]))
       right <- matrix(c(par, max.ll, 0), nrow = 1)
       right[1, i] <- upper[i]
       colnames(right) <- c(parnames, "loglik", "slope")
@@ -364,7 +364,7 @@ roots.proflik.q <- function(step, q0, y.id, par, ds, d, p, conf, ll, lower, uppe
 }
 
 # Estimate profile likelihood confidence intervals for quantiles
-ciprof.q <- function(y.id,  ds, durations, q0, p, par, max.ll, conf, step, lltol, gg){
+ciprof.q <- function(y.id,  ds, durations, q0, return.period, par, max.ll, conf, step, lltol, gg){
 
   # Parameter bounds
   lower <- c(-Inf, 1e-6, ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6), 1e-6, 0)
@@ -377,8 +377,6 @@ ciprof.q <- function(y.id,  ds, durations, q0, p, par, max.ll, conf, step, lltol
     grid <- expand.grid(d = durations, rp = return.period) # use user defined durations
   }
 
-  step <- if(q0 != 0) step*abs(q0)*0.1 else step
-
   # Loop through duration and return period combinations
   ls.profile <- lapply(seq_len(nrow(grid)), function(i){
   
@@ -386,6 +384,7 @@ ciprof.q <- function(y.id,  ds, durations, q0, p, par, max.ll, conf, step, lltol
     rp <- grid[i, "rp"]
     p <- 1 - 1/rp # non-excceedence probability
     q0 <- q.dgev.vec(par, d, p) # original quantile estimate
+    step <- if(q0 != 0) step*abs(q0)*0.1 else step
     
     out <- tryCatch({
 
@@ -509,7 +508,7 @@ fitprof.dgev <- function(
 
   message("Fitting d-GEV distribution, estimating quantiles and confidence intervals with 'profile likelihood'.")
   message(">> No. gauges: ", length(data))
-  message(">> Durations [h]: ", paste(durations, collapse = ", "))
+  message(">> Durations [h]: ", paste(if(is.null(durations)) "all available" else durations, collapse = ", "))
   message(">> Return periods [years]: ", paste(return.period, collapse = ", "))
   message(">> Search step: ", step)
   message(">> Confidence level for profile likelihood CIs: ", paste0(conf*100, "%"))
@@ -551,7 +550,7 @@ fitprof.dgev <- function(
   
       # Confidence intervals
       ls.ci.par <- ciprof.par(y.id, ds, par, max.ll, conf, step, lltol, gg)
-      ls.ci.q <- ciprof.q(y.id,  ds, durations, q0, p, par, max.ll, conf, step, lltol, gg)
+      ls.ci.q <- ciprof.q(y.id,  ds, durations, q0, return.period, par, max.ll, conf, step, lltol, gg)
   
       return(list(
         gauge_code = gg, 
@@ -630,54 +629,17 @@ maxit <- 1e8
 step <- 0.005
 lltol <- 0.005
 
-## INSIDE THE FUNCTION ---------------------------------------------------
-
-# Everything below this is inside a 'pblapply()' loop
-data.gg <- imax.ls[[1]]
-gg <- unique(data.gg$gauge_code)
-
-y.id <- data.gg |> 
-  pivot_wider(
-    names_from = cols[3],  # turn durations into columns
-    values_from = cols[4], # fill with 'imax' values
-    names_prefix = "d_"
-  ) |> 
-  arrange(cols[2]) |>   # arrange by 'year' (or 'wateryear')
-  select(-cols[1:2]) |> # remove 'gauge_code' and 'year' columns
-  na.omit() |> 
-  as.matrix()
-
-ds <- as.integer(gsub("d_", "", colnames(y.id))) # duration vector
-
-# This case does not require a loop thorugh all durations as they
-# are alll fitted in the same model
-fit <- fdgev(
-  y.id = y.id,
-  prior.info = prior.info,
-  cols = names(data.gg),
-  method = method,
-  scale.inv = scale.inv
-)
-
-par <- fit$par
-npar <- length(par)
-
-convergence <- fit$convergence
-max.ll <- -fit$value
-
-ls.ci.par <- ciprof.par(y.id, ds, par, max.ll, conf, step, lltol)
-ls.ci.q <- ciprof.q(y.id,  ds, d, q0, p, par, max.ll, conf, step, lltol)
-
-ls.res <- list(par = ls.ci.par, quantiles = ls.ci.q)
-
-
-teste <- fitprof.dgev(
-  data = imax.ls[c(1,2)],
+# Rodar função
+fitprof.ls <- fitprof.dgev(
+  data = imax.ls,
   prior.info = prior.info,
   return.period = return.period,
-  durations = durations,
-  cols = names(cols)
+  durations = NULL, # roda com todas as durações disponíveis
+  cols = cols
 )
+
+saveRDS(fitprof.ls, "base/gerados/ls_fit_dgev_proflik.rds")
+
 
 
 quantile.names <- colnames(proflik)
