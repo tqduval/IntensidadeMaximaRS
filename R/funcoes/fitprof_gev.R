@@ -40,7 +40,7 @@ prof.grad.gev <- function(par.free, which.par, par.value, y, prior.info){
 # and estimates its Confidence Intervals to a given confidence level 'conf'.
 # It may happen that this function ends up finding 'better' optimal parameters
 # than the original fgev() function
-roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
+roots.proflik <- function(y, step, conf, par, i, ll, lower, upper, prior.info){
   
   val.i <- par[[i]]
   npar <- length(par)
@@ -61,6 +61,10 @@ roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
         next
       }
     }
+    if(i == 2 && val.i <= lower[i]){
+      ll <- NA_real_
+      next
+    }
     
     fit.prof <- tryCatch(
       optim(
@@ -74,21 +78,13 @@ roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
             prior.info = prior.info
           )
         },
-        gr = NULL,
-        method = "L-BFGS-B",
-        lower = lower[-i],
-        upper = upper[-i],
-        control = list(
-          maxit = maxit,
-          factr = 1e9,
-          pgtol = 1e-8,
-          parscale = abs(last.par[-i])
-        )
+        gr = NULL, method = "L-BFGS-B", lower = lower[-i], upper = upper[-i],
+        control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8, parscale = abs(last.par[-i]))
       ),
       error = function(e) NULL
     )
     
-    if(!is.null(fit.prof) && fit.prof$convergence == 0){
+    if(!is.null(fit.prof) && fit.prof$convergence == 0 && fit.prof$value < 1e6){
       
       ll <- -fit.prof$value
       
@@ -106,18 +102,14 @@ roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
               prior.info = prior.info
             )
           },
-          method = "Nelder-Mead",
-          control = list(
-            maxit = maxit,
-            parscale = abs(last.par[-i])
-          )
+          method = "Nelder-Mead", control = list(maxit = maxit, parscale = abs(last.par[-i]))
         ),
         error = function(e) NULL
       )
       
-      if(!is.null(fit.prof) && fit.prof$convergence %in% c(0, 10)){
+      if(!is.null(fit.prof) && fit.prof$convergence %in% c(0, 10) && is.finite(fit.prof$value)){
         ll <- -fit.prof$value
-        if(ll < -1e4) ll <- NA_real_ # optim might reach convergence == 0, but converge to a break wall
+        if(ll < -1e6) ll <- NA_real_ # optim might reach convergence == 0, but converge to a break wall
       } else{
         ll <- NA_real_
       }
@@ -143,8 +135,8 @@ roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
     #   if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
     # }
     
-    zi <- 1 - full[2]/full[3]*(y - full[1])
-    if(any(zi < 1e-6)) ll <- NA_real_
+    # zi <- 1 - full[2]/full[3]*(y - full[1])
+    # if(any(zi < 1e-6)) ll <- NA_real_
 
     val.i <- val.i + step
     slope <- (ll - last.ll)/step    # how is the algorithm jumping around
@@ -176,7 +168,7 @@ roots.proflik <- function(y, step, conf, par, i, ll, lower, upper){
 # estimated confidence intervals;
 # 2) a matrix with all evaluated values of the parameters and respective profile values; and
 # 3) a vector with optimal profile log-likelihood parameters and its maximum.
-ciprof.par <- function(y, par, max.ll, step, conf, lltol, gg, d){
+ciprof.par <- function(y, par, max.ll, step, conf, lltol, gg, d, prior.info){
 
   lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
   upper <- c(Inf, Inf, if (is.null(prior.info)) Inf else 0.5 - 1e-6)
@@ -186,8 +178,8 @@ ciprof.par <- function(y, par, max.ll, step, conf, lltol, gg, d){
   ls.profile <- lapply(X = seq_along(par), FUN = function(i){
 
     # Find values to the left and to the right of the original 'par[i]' estimate
-    left <- roots.proflik(y, -step, conf, par, i, max.ll, lower, upper)
-    right <- roots.proflik(y, step, conf, par, i, max.ll, lower, upper)
+    left <- roots.proflik(y, -step, conf, par, i, max.ll, lower, upper, prior.info)
+    right <- roots.proflik(y, step, conf, par, i, max.ll, lower, upper, prior.info)
     proflik <- rbind(left, right)
     proflik <- proflik[order(proflik[,i]),] # order profile
     slope <- proflik[,"slope"]   # extract profile slope
@@ -299,7 +291,7 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
   lim <- ll - qchisq(conf, 1)/2 # CI threshold
   result <- list()
 
-  while(ll > lim){
+  while(ll > lim && !is.na(ll)){
 
     fit.prof <- tryCatch(
       optim(
@@ -313,7 +305,7 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
       error = function(e) NULL
     )
 
-    if(!is.null(fit.prof) && fit.prof$convergence == 0){
+    if(!is.null(fit.prof) && fit.prof$convergence == 0 && fit.prof$value < 1e6){
       ll <- -fit.prof$value
     } else{
       fit.prof <- tryCatch(
@@ -325,7 +317,7 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
         ),
         error = function(e) NULL
       )
-      if(!is.null(fit.prof) && fit.prof$convergence %in% c(0, 10)){
+      if(!is.null(fit.prof) && fit.prof$convergence %in% c(0, 10) && is.finite(fit.prof$value)){
         ll <- -fit.prof$value
         if(ll < -1e6){
           ll <- NA_real_
@@ -341,16 +333,20 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
   
     opt.alpha <- last.par.free[1] # extract optimal 'alpha'
     opt.kappa <- last.par.free[2] # extract optimal 'kappa'
-    opt.xi <- q0 - opt.alpha/opt.kappa*(1 - (-log(p))^opt.kappa) # rebuild optimal 'xi'
+    if(abs(opt.kappa) < 1e-5){
+      opt.xi <- q0 - opt.alpha*log(-log(p))
+    } else{
+      opt.xi <- q0 - opt.alpha/opt.kappa*(1 - (-log(p))^opt.kappa) # rebuild optimal 'xi'
+    }
 
     # Check GEV limits
-    gev.lim <- opt.xi + opt.alpha/opt.kappa  # xi + alpha/kappa
-    if(opt.kappa < 0){
-      if(any(y < gev.lim)) ll <- NA_real_ # domain violation for Fréchet law
-    }
-    if(opt.kappa > 0){
-      if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
-    }
+    # gev.lim <- opt.xi + opt.alpha/opt.kappa  # xi + alpha/kappa
+    # if(opt.kappa < 0){
+    #   if(any(y < gev.lim)) ll <- NA_real_ # domain violation for Fréchet law
+    # }
+    # if(opt.kappa > 0){
+    #   if(any(y > gev.lim)) ll <- NA_real_ # domain violation for reverse Weibull law
+    # }
 
     current.iter <- length(result) + 1 # update counter
     result[[current.iter]] <- c(q0, opt.xi, opt.alpha, opt.kappa, ll) # save current iteration
@@ -380,7 +376,7 @@ roots.proflik.q <- function(step, conf, par, ll, rp, y, prior.info, lower, upper
 # 1) a row tbl_df with original parameters from the log-likelihood maximization and 
 # estimated confidence intervals;
 # 2) a matrix with all evaluated values of the parameters and respective profile values
-ciprof.q <- function(y, par, return.period, max.ll, step, conf, gg, d){
+ciprof.q <- function(y, par, return.period, max.ll, step, conf, gg, d, prior.info){
 
   # Limites inferior e superior
   lower <- c(-Inf, 1e-6, if (is.null(prior.info)) -Inf else -0.5 + 1e-6)
@@ -452,6 +448,7 @@ fitprof.gev <- function(
   return.period,
   cols = c("gauge_code", "year", "duration", "imax"),
   conf = 0.95, lltol = 0.005, step = 0.005
+  # cores = 1
 ){
 
   #### CHECAGENS ----
@@ -478,14 +475,45 @@ fitprof.gev <- function(
   message(">> Search step: ", step)
   message(">> Confidence level for profile likelihood CIs: ", paste0(conf*100, "%"))
 
+  # if(cores > 1){
+  # 
+  #   message(">> Setting up parallel processing with ", cores," cores (PSOCK).")
+  #   
+  #   # Configurando processamento paralelo, caso desejado
+  #   cl <- parallel::makeCluster(cores) # inicia o cluster
+  #   on.exit(parallel::stopCluster(cl)) # encerra o cluster no fim do processamento
+  # 
+  #   # Enviar pacotes e funções auxiliares criadas p/ memória (workers)
+  #   parallel::clusterEvalQ(
+  #     cl, {
+  #       require(dplyr)
+  #       require(tidyr)
+  #     }
+  #   )
+  # 
+  #   parallel::clusterExport(
+  #     cl, varlist = c(
+  #       "ciprof.par", "ciprof.q", "roots.proflik", "roots.proflik.q",
+  #       "prof.nll.gev", "prof.nll.gev.q", "prof.grad.gev", 
+  #       "nll.gev", "qgev", "grad.ll.gev", "fgev", "data",
+  #       "prior.info", "return.period", "cols", "conf", "lltol", "step"
+  #     ),
+  #     envir = environment()
+  #   )
+  # 
+  # } else{
+  #   cl <- NULL
+  # }
+
+
   ls.res <- pbapply::pblapply(data, function(data.gg){
 
     gg <- unique(data.gg[[cols[1]]])
-    y.id <- data.gg %>%
-      pivot_wider(names_from = cols[3], values_from = cols[4], names_prefix = "d_") %>%
-      arrange(cols[2]) %>%
-      select(-c(cols[1], cols[2])) %>%
-      as.matrix() %>%
+    y.id <- data.gg |> 
+      pivot_wider(names_from = cols[3], values_from = cols[4], names_prefix = "d_") |> 
+      arrange(cols[2]) |> 
+      select(-c(cols[1], cols[2])) |> 
+      as.matrix() |> 
       na.omit()
   
     # Estimate parameters and quantiles with profile likelihood confidence intervals
@@ -512,7 +540,7 @@ fitprof.gev <- function(
           step = step, 
           conf = conf, 
           lltol = lltol,
-          gg, d
+          gg, d, prior.info
         )
         opt.par <- ls.ci.par[["ci"]][["par"]]
         opt.ll <- max(ls.ci.par[["ci"]][["found_max"]])
@@ -524,7 +552,7 @@ fitprof.gev <- function(
           step = step,
           conf = conf,
           lltol = lltol,
-          gg, d
+          gg, d, prior.info
         )
         
         # Run profile likelihood for quantiles
@@ -537,7 +565,7 @@ fitprof.gev <- function(
           max.ll = opt.ll, 
           step = step, 
           conf = conf,
-          gg, d
+          gg, d, prior.info
         )
       
         return(list(par = rerun.ci.par, quantiles = ls.ci.q))
@@ -552,14 +580,15 @@ fitprof.gev <- function(
     })
   
     ls.prof.d <- Filter(Negate(is.null), ls.prof.d)
-    if(length(ls.prof.d) == 0) stop("No duration converged for this gauge.")
+    # if(length(ls.prof.d) == 0) stop("No duration converged for this gauge.")
+    if(length(ls.prof.d) == 0) return(NULL)
   
     ls.par <- lapply(ls.prof.d, `[[`, "par")             # extract parameters list
     ls.quantiles <- lapply(ls.prof.d, `[[`, "quantiles") # extract quantiles list
-    ci.par <- bind_rows(lapply(ls.par, `[[`, "ci"))      # extract paramaters 'ci' data.frame 
-    ci.q <- bind_rows(lapply(ls.quantiles, `[[`, "ci"))  # extract quantiles 'ci' data.frame
-    prof.par <- bind_rows(lapply(ls.par, `[[`, "profile"))     # extract parameters profile likelihood
-    prof.q <- bind_rows(lapply(ls.quantiles, `[[`, "profile")) # extract quantiles profile likelihood
+    ci.par <- dplyr::bind_rows(lapply(ls.par, `[[`, "ci"))      # extract paramaters 'ci' data.frame 
+    ci.q <- dplyr::bind_rows(lapply(ls.quantiles, `[[`, "ci"))  # extract quantiles 'ci' data.frame
+    prof.par <- dplyr::bind_rows(lapply(ls.par, `[[`, "profile"))     # extract parameters profile likelihood
+    prof.q <- dplyr::bind_rows(lapply(ls.quantiles, `[[`, "profile")) # extract quantiles profile likelihood
   
     return(list(
       ci.par = ci.par, 
@@ -568,14 +597,15 @@ fitprof.gev <- function(
       prof.q = prof.q
     ))
   
-  })
+  }) # fim 'ls.res'
+  # }, cl = cl) # fim 'ls.res'
   
   
   # Bind everything again
-  ci.par <- bind_rows(lapply(ls.res, `[[`, "ci.par")); rownames(ci.par) <- NULL
-  ci.q <- bind_rows(lapply(ls.res, `[[`, "ci.q"))
-  prof.par <- bind_rows(lapply(ls.res, `[[`, "prof.par"))
-  prof.q <- bind_rows(lapply(ls.res, `[[`, "prof.q"))
+  ci.par <- dplyr::bind_rows(lapply(ls.res, `[[`, "ci.par")); rownames(ci.par) <- NULL
+  ci.q <- dplyr::bind_rows(lapply(ls.res, `[[`, "ci.q"))
+  prof.par <- dplyr::bind_rows(lapply(ls.res, `[[`, "prof.par"))
+  prof.q <- dplyr::bind_rows(lapply(ls.res, `[[`, "prof.q"))
 
   return(list(
     par = ci.par,
@@ -585,3 +615,80 @@ fitprof.gev <- function(
   ))
 
 }
+
+
+# TESTING THE FUNCTION ---------------------------------------------------
+
+pacman::p_load(pacman, tidyverse, arrow, parallel)
+imax.df <- arrow::read_parquet("base/gerados/df_imax.pqt")
+
+# Filter dada
+na.yr <- 0.2
+min.durations <- 3
+d.interval <- c(1, 24)
+min.yr <- 8
+
+imax.df <- imax.df |> 
+  filter(na_prct_yr <= na.yr,
+         between(d, d.interval[1], d.interval[2])) |> 
+  group_by(gauge_code) |> 
+  filter(n_distinct(d) >= min.durations,
+         n_distinct(wateryear) >= min.yr) |> 
+  ungroup() |> 
+  select(gauge_code, wateryear, d, imax)
+
+imax.ls <- split(imax.df, imax.df$gauge_code)
+
+# Define function arguments
+which.prior <- list(
+  NULL, 
+  c(0.0178, 0.0627),
+  c(0, 0.122)
+)
+cols <- names(imax.df)
+method <- "L-BFGS-B"
+scale.inv <- "wide"
+return.period <- c(1.1, 1.5, 2, 5, 10, 20, 50, 100, 200, 500)
+conf <- 0.95
+maxit <- 1e8
+step <- 0.005
+lltol <- 0.005
+
+# Rodar função sem priori
+prior.info <- which.prior[[1]]
+fitprof.gev.nprior.ls <- fitprof.gev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  # durations = durations,
+  cols = cols
+)
+
+invisible(gc())
+saveRDS(fitprof.gev.nprior.ls, "base/gerados/ls_fit_gev_prof_nprior.rds")
+
+# Rodar função com priori
+prior.info <- which.prior[[2]]
+fitprof.gev.wprior.ls <- fitprof.gev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = cols
+)
+
+invisible(gc())
+saveRDS(fitprof.gev.wprior.ls, "base/gerados/ls_fit_gev_prof_wprior.rds")
+
+# Rodar função com priori quase-informativa
+prior.info <- which.prior[[3]]
+fitprof.gev.wprior.ls <- fitprof.gev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = cols
+)
+
+fitprof.gev.wprior.ninfo.ls <- fitprof.gev.wprior.ls
+
+invisible(gc())
+saveRDS(fitprof.gev.wprior.ninfo.ls, "base/gerados/ls_fit_gev_prof_wprior_ninfo.rds")

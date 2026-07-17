@@ -50,6 +50,9 @@ nll.dgev <- function(param, durations, y.id, prior.info){
   kappa <- param[3]  # forma
   H <- param[4]      # invariância de escala (expoente de escala - H ou eta)
   theta <- param[5]  # invariância de escala (parâmetro de posição - theta)
+
+  if(abs(kappa) < 1e-5) kappa <- sign(kappa) * 1e-5
+  if(kappa == 0) kappa <- 1e-5
   
   N <- nrow(y.id)
   D <- ncol(y.id)
@@ -245,7 +248,8 @@ fdgev <- function(y.id, # antes 'data.gg'
             durations = durations, y.id = y.id, prior.info = prior.info,
             control = list(maxit = maxit, factr = 1e9, pgtol = 1e-8)),
       error = function(e){
-        warning("Erro na estação'", gg, "': ", e$message, ".\nOtimizando com Nelder-Mead.")
+        # warning("Erro na estação'", gg, "': ", e$message, ".\nOtimizando com Nelder-Mead.")
+        warning("Error: ", conditionMessage(e))
         return(NULL)
       }
     )
@@ -259,7 +263,8 @@ fdgev <- function(y.id, # antes 'data.gg'
           durations = durations, y.id = y.id, prior.info = prior.info,
           control = list(maxit = maxit)),
     error = function(e){
-      warning("Erro na estação'", gg, "': ", e$message, ".")
+      # warning("Erro na estação'", gg, "': ", e$message, ".")
+      warning("Error: ", conditionMessage(e))
       return(NULL)
     }
   )

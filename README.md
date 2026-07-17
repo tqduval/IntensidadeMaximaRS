@@ -1,3 +1,4 @@
+Tem que lembrar a verossimilhança da d-GEV deve ser com observações independentes, mas no nosso caso estamos assumindo que todas as observações de intensidade ($i_{d}$) são independentes, o que muito provavelmente não é verdade.
 ## Motivação (mantra)
 A ideia por trás de investigar o ajuste incluindo informação adicional está na realidade do nosso conjunto de estações: são muito curtas. Realizando um experimento bootstrap m-de-n, podemos entender melhor a influência de séries longas na estimativa do parâmetro de forma com momentos-L. Pegamos uma série originalmente com 100 anos de dados que estimou $\hat\kappa_{LMOM} = -0.04$ e fazemos reamostragens de tamanho $M$, em que $M$ tem 15 anos neste exemplo. 
 

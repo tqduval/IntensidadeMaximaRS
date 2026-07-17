@@ -15,6 +15,9 @@ nll.gev <- function(param, y, prior.info) {
   kappa <- param[3]
   n <- length(y)
 
+  if(abs(kappa) < 1e-5) kappa <- sign(kappa) * 1e-5
+  if(kappa == 0) kappa <- 1e-5
+
   if(!is.null(prior.info)) {
     mu.kappa <- prior.info[1]
     var.kappa <- prior.info[2]^2

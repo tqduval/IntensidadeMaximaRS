@@ -29,13 +29,12 @@ prof.grad.dgev <- function(par.free, which.par, par.value, y.id, durations, prio
 }
 
 # Find the 'roots' of the profile log-likelihood function
-roots.proflik <- function(y.id, ds, step, conf, par, i, ll, lower, upper){
+roots.proflik <- function(y.id, ds, step, conf, par, i, ll, lower, upper, prior.info){
 
   val.i <- par[[i]]
   last.par <- par
   npar <- length(par)
   lim <- ll - qchisq(conf, 1)/2
-  if(val.i != 0) step <- step*par[[i]] # use a dynamically defined step
   parnames <- c("xit", "alpha0", "kappa", "H", "theta")
 
   result <- list()
@@ -70,10 +69,8 @@ roots.proflik <- function(y.id, ds, step, conf, par, i, ll, lower, upper){
       ), error = function(e) NULL
     )
 
-    if(!is.null(fit.prof) && fit.prof$convergence == 0){
-
+    if(!is.null(fit.prof) && fit.prof$convergence == 0 && fit.prof$value < 1e6){
       ll <- -fit.prof$value # save new profile value 'll'
-
     } else{
       fit.prof <- tryCatch(
         optim(
@@ -89,8 +86,10 @@ roots.proflik <- function(y.id, ds, step, conf, par, i, ll, lower, upper){
         error = function(e) NULL
       )
       if(!is.null(fit.prof) && fit.prof$convergence %in% c(0, 10) && is.finite(fit.prof$value)){
-        ll <- fit.prof$value
+        ll <- -fit.prof$value
         if(ll < -1e6) ll <- NA_real_
+      } else{
+        ll <- NA_real_
       }
     }
 
@@ -110,8 +109,8 @@ roots.proflik <- function(y.id, ds, step, conf, par, i, ll, lower, upper){
     result[[current.iter]] <- c(full, ll, slope) # save current results
 
     # message(sprintf(
-    #   "%s | ci %-3s | %s: %0.3f | ll: %0.3f | slope: %0.3f",
-    #   gg, ifelse(step < 0, "low", "up"), parnames[i], val.i, ll, slope
+    #   "ci %-3s | %s: %0.3f | ll: %0.3f | slope: %0.3f",
+    #   ifelse(step < 0, "low", "up"), parnames[i], val.i, ll, slope
     # ))
 
   } # end of 'while' search
@@ -124,8 +123,9 @@ roots.proflik <- function(y.id, ds, step, conf, par, i, ll, lower, upper){
 }
 
 # Estimate profile likelihood confidence intervals for d-GEV parameters
-ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
+ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg, prior.info){
 
+  # message("Estimating parameter CIs...")
   lower <- c(-Inf, 1e-6, ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6), 1e-6, 0)
   upper <- c(Inf, Inf, ifelse(is.null(prior.info), Inf, 0.5 - 1e-6), 1 - 1e-6, Inf)
   parnames <- c("xit", "alpha0", "kappa", "H", "theta")
@@ -133,9 +133,11 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
   
   ls.profile <- lapply(X = seq_along(par), FUN = function(i){
   
+    step.par <- max(abs(step*par[[i]]), step) + 1e-7 # passo redefinido para evitar kappa == 0
+
     # Search left (lower CI limit)
-    if(par[i] > lower[i] + step){
-      left <- roots.proflik(y.id, ds, -step, conf, par, i, max.ll, lower, upper)
+    if(par[i] > lower[i] + step.par){
+      left <- roots.proflik(y.id, ds, -step.par, conf, par, i, max.ll, lower, upper, prior.info)
     } else{
       # message(sprintf("Optimal `%s` is at the edge of its domain`, returning `ci_lower == par[i]`", parnames[i]))
       left <- matrix(c(par, max.ll, 0), nrow = 1)
@@ -144,8 +146,8 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
     }
     
     # Search right (upper CI limit)
-    if(par[i] < upper[i] - step){
-      right <- roots.proflik(y.id, ds, step, conf, par, i, max.ll, lower, upper)
+    if(par[i] < upper[i] - step.par){
+      right <- roots.proflik(y.id, ds, step.par, conf, par, i, max.ll, lower, upper, prior.info)
     } else{
       # message(sprintf("Optimal `%s` is at the edge of its domain`, returning `ci_upper == par[i]`", parnames[i]))
       right <- matrix(c(par, max.ll, 0), nrow = 1)
@@ -157,7 +159,7 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
     proflik <- proflik[order(proflik[,i]),]
     ci.lower <- min(proflik[,i], na.rm = TRUE)
     ci.upper <- max(proflik[,i], na.rm = TRUE)
-    ll.max.proflik <- max(proflik[,"loglik"])
+    ll.max.proflik <- max(proflik[,"loglik"], na.rm = TRUE)
     par.max.proflik <- proflik[which.max(proflik[,"loglik"]), seq_len(length(par))]
     if(par[i] != 0){
       if(abs(par.max.proflik[i] - par[i])/par[i] > lltol){
@@ -202,7 +204,7 @@ ciprof.par <- function(y.id, ds, par, max.ll, conf, step, lltol, gg){
         n_profile = nrow(proflik),
         message = message, # if message == 1, 'prof.pars' should be checked
         conf = conf,
-        step = step
+        step = step.par
       ),
       prof.par = unlist(proflik[which.max(proflik[,"loglik"]), seq_len(length(par) + 1)]), # + 1 pega o loglik
       # prof.par = out.par,
@@ -273,7 +275,7 @@ q.dgev.vec <- function(param, d, p){
   
 }
 
-roots.proflik.q <- function(step, q0, y.id, par, ds, d, p, conf, ll, lower, upper){
+roots.proflik.q <- function(step, q0, y.id, par, ds, d, p, conf, ll, lower, upper, prior.info){
 
   npar <- length(par)
   last.par.free <- par[-1]
@@ -348,8 +350,8 @@ roots.proflik.q <- function(step, q0, y.id, par, ds, d, p, conf, ll, lower, uppe
     q0 <- q0 + step
   
     # message(sprintf(
-    #   "%s | p: %0.3f | d: %2d | q: %0.3f mm/h | ll: %0.3f | conv: %g",
-    #   gg, p, d, q0, ll, fit.prof[["convergence"]]
+    #   "p: %0.3f | d: %2d | q: %0.3f mm/h | ll: %0.3f | conv: %g",
+    #   p, d, q0, ll, fit.prof[["convergence"]]
     # ))
   
   }
@@ -364,7 +366,9 @@ roots.proflik.q <- function(step, q0, y.id, par, ds, d, p, conf, ll, lower, uppe
 }
 
 # Estimate profile likelihood confidence intervals for quantiles
-ciprof.q <- function(y.id,  ds, durations, q0, return.period, par, max.ll, conf, step, lltol, gg){
+ciprof.q <- function(y.id, ds, durations, return.period, par, max.ll, conf, step, lltol, gg, prior.info){
+
+  # message("Estimating quantile CIs...")
 
   # Parameter bounds
   lower <- c(-Inf, 1e-6, ifelse(is.null(prior.info), -Inf, -0.5 + 1e-6), 1e-6, 0)
@@ -380,16 +384,17 @@ ciprof.q <- function(y.id,  ds, durations, q0, return.period, par, max.ll, conf,
   # Loop through duration and return period combinations
   ls.profile <- lapply(seq_len(nrow(grid)), function(i){
   
-    d <- grid[i, "d"]
-    rp <- grid[i, "rp"]
-    p <- 1 - 1/rp # non-excceedence probability
-    q0 <- q.dgev.vec(par, d, p) # original quantile estimate
-    step <- if(q0 != 0) step*abs(q0)*0.1 else step
-    
     out <- tryCatch({
-
-      left <- roots.proflik.q(-step, q0, y.id, par, ds, d, p, conf, max.ll, lower, upper) # search right
-      right <- roots.proflik.q(step, q0, y.id, par, ds, d, p, conf, max.ll, lower, upper) # search left
+      
+      d <- grid[i, "d"]
+      rp <- grid[i, "rp"]
+      # message(sprintf("d: %g h | return_period: %g years", d, rp))
+      p <- 1 - 1/rp # non-excceedence probability
+      q0 <- q.dgev.vec(par, d, p) # original quantile estimate
+      step.q <- if(abs(q0) > 1e-5) step*abs(q0)*0.1 else step
+      # step.q <- max(abs(step*q0), step) + 1e-7
+      left <- roots.proflik.q(-step.q, q0, y.id, par, ds, d, p, conf, max.ll, lower, upper, prior.info) # search right
+      right <- roots.proflik.q(step.q, q0, y.id, par, ds, d, p, conf, max.ll, lower, upper, prior.info) # search left
   
       proflik <- rbind(left, right)
       q.name <- sprintf("q_%g", rp)
@@ -421,7 +426,7 @@ ciprof.q <- function(y.id,  ds, durations, q0, return.period, par, max.ll, conf,
           flag_shape = if(abs(par[3]) > 0.5) 1 else 0, # flag '1' whenever |kappa| is larger than 0.
           censored_ci = censored,
           conf = conf,
-          step = step,
+          step = step.q,
           error = 0L,
           error_message = NA_character_
         ),
@@ -448,7 +453,7 @@ ciprof.q <- function(y.id,  ds, durations, q0, return.period, par, max.ll, conf,
           max = max.ll, 
           lim = max.ll - qchisq(conf, 1)/2,
           prior = deparse(prior.info),
-          n_profle = NA_integer_,
+          n_profile = NA_integer_,
           flag_shape = if(abs(par[3]) > 0.5) 1 else 0, # flag '1' whenever |kappa| is larger than 0.
           censored_ci = 1L,
           conf = conf,
@@ -486,7 +491,8 @@ fitprof.dgev <- function(
   data, prior.info = NULL,
   return.period, durations = NULL,
   cols = c("gauge_code", "year", "duration", "imax"),
-  conf = 0.95, lltol = 0.005, step = 0.005
+  conf = 0.95, lltol = 0.005, step = 0.005,
+  method = "L-BFGS-B", scale.inv = "wide"
 ){
 
   #### CHECAGENS ----
@@ -510,12 +516,18 @@ fitprof.dgev <- function(
   message(">> No. gauges: ", length(data))
   message(">> Durations [h]: ", paste(if(is.null(durations)) "all available" else durations, collapse = ", "))
   message(">> Return periods [years]: ", paste(return.period, collapse = ", "))
+  message(">> Prior information: ", deparse(prior.info))
   message(">> Search step: ", step)
   message(">> Confidence level for profile likelihood CIs: ", paste0(conf*100, "%"))
 
   ls.res <- pbapply::pblapply(data, function(data.gg){
+  # ls.res <- lapply(data, function(data.gg){
 
-    gg <- unique(data.gg$gauge_code)
+    gg <- unique(data.gg[[cols[1]]])
+
+    # message(rep("=", getOption("width")))
+    # message(sprintf("Gauge: %s", gg))
+    # message(rep("-", getOption("width")))
 
     res <- tryCatch({
 
@@ -537,7 +549,7 @@ fitprof.dgev <- function(
       fit <- fdgev(
         y.id = y.id,
         prior.info = prior.info,
-        cols = names(data.gg),
+        cols = cols,
         method = method,
         scale.inv = scale.inv
       )
@@ -549,8 +561,8 @@ fitprof.dgev <- function(
       max.ll <- -fit$value
   
       # Confidence intervals
-      ls.ci.par <- ciprof.par(y.id, ds, par, max.ll, conf, step, lltol, gg)
-      ls.ci.q <- ciprof.q(y.id,  ds, durations, q0, return.period, par, max.ll, conf, step, lltol, gg)
+      ls.ci.par <- ciprof.par(y.id, ds, par, max.ll, conf, step, lltol, gg, prior.info)
+      ls.ci.q <- ciprof.q(y.id, ds, durations, return.period, par, max.ll, conf, step, lltol, gg, prior.info)
   
       return(list(
         gauge_code = gg, 
@@ -562,6 +574,7 @@ fitprof.dgev <- function(
 
     }, error = function(e){
 
+      message(sprintf("Error in %s: %s", gg, conditionMessage(e)))
       return(list(
         gauge_code = gg,
         par = NULL,
@@ -616,40 +629,226 @@ imax.df <- imax.df |>
 imax.ls <- split(imax.df, imax.df$gauge_code)
 
 # Define function arguments
-which.prior <- list(NULL, c(0.0178, 0.0627))
-prior.info <- which.prior[[1]]
+# which.prior <- list(NULL, c(0.0178, 0.0627))
+which.prior <- list(
+  NULL, 
+  c(0.0178, 0.0627),
+  c(0, 0.122)
+)
+# prior.info <- which.prior[[1]]
 cols <- names(imax.df)
 method <- "L-BFGS-B"
 scale.inv <- "wide"
 # durations <- c(1, 2, 4, 6, 8, 10, 12, 18, 24)
-durations <- c(1, 6, 12, 24)
+durations <- NULL  # roda com todas as durações disponíveis
 return.period <- c(1.1, 1.5, 2, 5, 10, 20, 50, 100, 200, 500)
 conf <- 0.95
 maxit <- 1e8
 step <- 0.005
 lltol <- 0.005
 
-# Rodar função
-fitprof.ls <- fitprof.dgev(
-  data = imax.ls,
+# Rodar função sem priori
+prior.info <- which.prior[[1]]
+fitprof.dgev.nprior.ls <- fitprof.dgev(
+  data = imax.ls["A812"],
   prior.info = prior.info,
   return.period = return.period,
-  durations = NULL, # roda com todas as durações disponíveis
+  durations = durations,
   cols = cols
 )
 
-saveRDS(fitprof.ls, "base/gerados/ls_fit_dgev_proflik.rds")
+saveRDS(fitprof.dgev.nprior.ls, "base/gerados/ls_fit_dgev_prof_nprior.rds")
 
-
-
-quantile.names <- colnames(proflik)
-proflik <- proflik[order(proflik[,2]),][,quantile.names[c(2,length(quantile.names))]]
-plot(proflik, type = "p", xlab = sprintf("%s (d = %g h)", quantile.names[2], d), main = gg)
-segments(x0 = q0, x1 = q0, y0 = max.ll, y1 = max.ll - qchisq(conf, 1)/2, lty = "dashed", col = "grey50")
-segments(
-  x0 = min(proflik[,1], na.rm = TRUE), 
-  y0 = max.ll - qchisq(conf, 1)/2,
-  x1 = max(proflik[,1], na.rm = TRUE), 
-  y1 = max.ll - qchisq(conf, 1)/2,
-  col = "red"
+# Rodar função com priori
+prior.info <- which.prior[[2]]
+fitprof.dgev.wprior.ls <- fitprof.dgev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = cols
 )
+
+invisible(gc())
+
+saveRDS(fitprof.dgev.wprior.ls, "base/gerados/ls_fit_dgev_prof_wprior.rds")
+
+# Rodar função com priori pouco informativa
+prior.info <- which.prior[[3]]
+fitprof.dgev.wprior.ninfo.ls <- fitprof.dgev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = cols
+)
+
+invisible(gc())
+
+saveRDS(fitprof.dgev.wprior.ninfo.ls, "base/gerados/ls_fit_dgev_prof_wprior_ninfo.rds")
+
+# profile.q <- fitprof.dgev.nprior.ls$prof.q
+# plot.rp <- 100
+# plot.d <- 1
+
+# proflik <- profile.q |> 
+#   filter(d == plot.d, return_period == plot.rp) |> 
+#   select(gauge_code, q, loglik) |> 
+#   arrange(q)
+
+# max.loglik <- max(proflik$loglik, na.rm = TRUE)
+# q.max <- proflik$q[proflik$loglik == max.loglik][1]
+# wilks.lim <- max.loglik - qchisq(conf, 1)/2
+
+# ggplot() +
+#   facet_wrap(~gauge_code, labeller = as_labeller(function(x) sprintf("gauge_code: %s | rp: %g yrs | d: %g h", x, plot.rp, plot.d))) +
+#   geom_segment(aes(x = q.max, y = wilks.lim, yend = max.loglik), linewidth = 0.5, color = "grey", linetype = "dashed") +
+#   geom_hline(yintercept = wilks.lim, color = "red", linewidth = 0.5) +
+#   geom_point(aes(x = q.max, y = wilks.lim), color = "red") +
+#   geom_point(aes(x = q, y = loglik), proflik, shape = 21, fill = "transparent") +
+#   labs(x = "q", y = "profile") +
+#   theme_bw() +
+#   theme(
+#     strip.background = element_blank(),
+#     strip.text = element_text(hjust = 0),
+#     text = element_text(family = "JetBrainsMono NF")
+#   )
+
+
+# INVESTIGAR FAIXA MENOR 6-24 H ------------------------------------------
+
+gg <- "A801"
+
+imax.interval.df <- imax.df |> 
+  # filter(d >= 6, d <= 24)
+  filter(d >= 1, d <= 6)
+
+unique(imax.interval.df$d)
+  
+imax.interval.ls <- split(imax.interval.df, imax.interval.df$gauge_code)
+
+freq.obs.df <- imax.interval.df |> 
+  filter(gauge_code == gg) |> 
+  group_by(gauge_code, d) |> 
+  arrange(gauge_code, d, desc(imax)) |> 
+  mutate(
+    n = n(),
+    i = row_number(),
+    p = i/(n + 1),
+    return_period = 1/p
+  )
+
+rp.obs <- unique(freq.obs.df$return_period)
+
+fitprof.dgev.wprior.ls <- fitprof.dgev(
+  data = imax.interval.ls[gg],
+  prior.info = NULL,
+  return.period = sort(c(rp.obs, return.period)),
+  cols = cols
+)
+
+par.df <- fitprof.dgev.wprior.ls$par
+idf.df <- fitprof.dgev.wprior.ls$idf
+
+durations <- c(6, 12, 24)
+durations <- c(1, 3, 6)
+
+par.wide.df <- par.df |> 
+  # filter(parname %in% c("H", "theta")) |> 
+  select(gauge_code, parname, par, prior) |> 
+  pivot_wider(
+    names_from = parname,
+    values_from = par
+  )
+
+Y <- idf.df |> 
+  select(gauge_code, d, return_period, q) |> 
+  left_join(
+    par.wide.df |> select(gauge_code, H, theta, prior),
+    by = c("gauge_code")
+  ) |> 
+  rowwise() |> 
+  mutate(
+    b = (d + theta)^H,
+    y = q*b
+  ) |> 
+  ungroup() |> 
+  slice_head(n = 1, by = c("gauge_code", "return_period")) |> 
+  select(gauge_code, return_period, y)
+
+Y.obs <- freq.obs.df |> 
+  filter(d %in% durations) |> 
+  left_join(
+    par.wide.df |> select(gauge_code, H, theta, prior),
+    by = c("gauge_code")
+  ) |> 
+  rowwise() |> 
+  mutate(
+    b = (d + theta)^H,
+    y = imax*b
+  ) |> 
+  ungroup()
+
+text.plot <- par.wide.df |> 
+  mutate(
+    w = 1 - H,
+    text = sprintf(
+      "κ = %0.3f\nH = %0.3f\nθ = %0.3f\nω = %0.3f", 
+      kappa, H, theta, w
+    )
+  ) |> print()
+
+
+# Set theme
+suppressMessages(extrafont::loadfonts())
+# font <- "Courier New"
+font <- "JetBrainsMono NF"
+# font <- "RobotoMono Nerd Font"
+# font <- "Consolas"
+fontsize <- 8
+textsize <- (fontsize - 2) / .pt
+ggplot2::set_theme(
+  theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      legend.box.margin = margin(-5.5, 2, 2, 2),
+      legend.key.size = unit(fontsize, "pt"),
+      text = element_text(color = "black", size = fontsize, family = font),
+      axis.text = element_text(color = "black"),
+      strip.text = element_text(hjust = 0, size = fontsize - 2, margin = margin(2, 2, 2, 2), color = "black"),
+      panel.border = element_rect(color = "black"),
+      panel.grid = element_blank(),
+      plot.margin = margin()
+    )
+)
+
+d.colors <- c("red", "orange", "green", "steelblue")
+ggplot() +
+  facet_wrap(~gauge_code, labeller = as_labeller(function(x) sprintf("Estação %s", x))) +
+    # geom_line(aes(x = return_period, y = q, color = "i<sub>d,p</sub>", group = factor(d)), idf.df |> filter(gauge_code == gg)) +
+  geom_line(
+    aes(x = return_period, y = y, color  = "Y<sub>T</sub>"), 
+    Y |> filter(return_period <= 100), 
+    linewidth = 0.5
+  ) +
+  geom_point(
+    aes(x = return_period, y = y, color = factor(d), group = factor(d)), Y.obs, 
+    size = 0.8, alpha = 0.8
+  ) +
+  geom_text(
+    aes(x = 1.05, y = Inf, label = text), text.plot,
+    color = "black", family = font, size = textsize, vjust = 1.2, hjust = 0
+  ) +
+  scale_color_manual(
+    name = "", values = c("Y<sub>T</sub>" = "black", setNames(d.colors, durations)),
+  ) +
+  scale_x_log10() +
+  labs(
+    # x = "T [anos]", y = "y<sub>p</sub> = i<sub>d,p</sub>(d + θ)<sup>H</sup> [mm/h<sup>ω</sup>]", 
+    x = "T [anos]", y = "Y<sub>T</sub> [mm/h<sup>ω</sup>]", 
+  ) +
+  theme(
+    axis.title.y = ggtext::element_markdown(),
+    legend.text = ggtext::element_markdown(),
+    panel.grid.major.y = element_line(linewidth = 0.2, color = "grey", linetype = "dashed")
+  )
+
+ggsave(sprintf("figuras/preliminares/growth_curve_pts_%s_1-6h.png", gg), height = 8, width = 12, units = "cm", dpi = 300)

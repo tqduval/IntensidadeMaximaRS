@@ -2,17 +2,17 @@
 pacman::p_load(pacman, tidyverse, arrow)
 
 # Intensidades máximas anuais
-df.imax <- arrow::read_parquet("base/gerados/df_imax.pqt")
+imax.df <- arrow::read_parquet("base/gerados/df_imax.pqt")
 
 # Aplicar critérios de qualidade
-data <- df.imax %>% 
+imax.df <- imax.df %>% 
   filter(na_prct_yr <= 0.2, between(d, 1, 24)) %>% 
   group_by(gauge_code) %>% 
   filter(n_distinct(d) >= 3, n_distinct(wateryear) >= 8) %>% 
   ungroup() %>% 
   select(gauge_code, wateryear, d, imax)
 
-ls.data <- split(data, data$gauge_code)
+imax.ls <- split(imax.df, imax.df$gauge_code)
 
 
 # CONSTRUÇÃO DA FUNÇÃO ----------------------------------------------------
@@ -102,14 +102,27 @@ shape.boot <- function(data, cols = c("gauge_code", "year", "d", "imax"), B, con
               remove = FALSE, convert = TRUE) %>% 
       rename(ci_lower = `2.5%`, ci_upper = `97.5%`)
     
-    return(out)
+    # return(out)
+    return(list(ci = out, replicates = boot.matrix))
     
   }) # fim 'ls.res'
   # }, future.seed = TRUE) # fim 'ls.res'
   
-  return(bind_rows(ls.res))
+  # return(bind_rows(ls.res))
+  return(ls.res)
   
 }
 
-df.shape <- shape.boot(ls.data, B = 10000, cols = names(data))
-arrow::write_parquet(df.shape, "base/gerados/df_shapes_boot_lmom.pqt")
+shape.df <- shape.boot(imax.ls, B = 10000, cols = names(imax.df))
+arrow::write_parquet(shape.df, "base/gerados/df_shapes_boot_lmom.pqt")
+
+# Run for only one gauge
+gg <- "A852"
+shape.ls <- shape.boot(imax.ls[gg], B = 10000, cols = names(imax.df))
+
+replicates <- do.call(rbind, lapply(shape.ls, `[[`, "replicates"))
+
+hist(replicates[,24])
+d <- 24
+qqnorm(replicates[,d]); qqline(replicates[,d])
+
