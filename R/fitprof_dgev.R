@@ -633,7 +633,8 @@ imax.ls <- split(imax.df, imax.df$gauge_code)
 which.prior <- list(
   NULL, 
   c(0.0178, 0.0627),
-  c(0, 0.122)
+  c(0, 0.122),
+  c(-0.1, 0.122)
 )
 # prior.info <- which.prior[[1]]
 cols <- names(imax.df)
@@ -685,6 +686,18 @@ invisible(gc())
 
 saveRDS(fitprof.dgev.wprior.ninfo.ls, "base/gerados/ls_fit_dgev_prof_wprior_ninfo.rds")
 
+# Rodar função com priori Martins e Stedinger
+prior.info <- which.prior[[4]]
+fitprof.dgev.wprior.martins.ls <- fitprof.dgev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = cols
+)
+
+invisible(gc())
+
+saveRDS(fitprof.dgev.wprior.martins.ls, "base/gerados/ls_fit_dgev_prof_wprior_martins.rds")
 # profile.q <- fitprof.dgev.nprior.ls$prof.q
 # plot.rp <- 100
 # plot.d <- 1

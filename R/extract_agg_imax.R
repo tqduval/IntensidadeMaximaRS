@@ -16,8 +16,8 @@ pacman::p_load(pacman,    # gerenciador de pacotes
 # LER DADOS ---------------------------------------------------------------
 
 # Importar
-df.info <- arrow::read_parquet("base/fonte/subdaily/df_subdaily_info.pqt")
-df.data <- arrow::read_parquet("base/fonte/subdaily/df_subdaily_data.pqt")
+info.df <- arrow::read_parquet("base/fonte/subdaily/df_subdaily_info.pqt")
+data.df <- arrow::read_parquet("base/fonte/subdaily/df_subdaily_data.pqt")
 
 # Critérios p/ filtrar séries
 na.accept <- 0 # 0.2
@@ -29,10 +29,26 @@ source("R/funcoes/fun_group_ts.R")   # agrupar por time_step
 source("R/funcoes/fun_imax_agg_wateryear.R") # agregar por durações e calcular intensidade máxima anual por ano hidrológico
 
 # Preencher datas e filtrar conforme 'na_accept' e 'min_years'
-df.data <-  fun_filter_set(data = df.data,
-                           daily = FALSE,
-                           col_names = names(df.data),
-                           filter = FALSE); invisible(gc())
+data.df <- fun_filter_set(
+  data = data.df,
+  daily = FALSE,
+  col_names = names(data.df),
+  filter = FALSE
+); invisible(gc())
+
+
+# CALCULAR TOTAIS ANUAIS -------------------------------------------------
+
+yr.data <- data.df |> 
+  mutate(
+    year = year(datetime)
+  ) |> 
+  group_by(gauge_code, year) |> 
+  reframe(
+    rain_yr = sum(rain_mm, na.rm = TRUE)
+  )
+
+arrow::write_parquet(yr.data, "base/gerados/df_subdaily_yrsum.pqt")
 
 # AGREGAR DURAÇÕES --------------------------------------------------------
 
@@ -62,10 +78,12 @@ imax.ls <- lapply(X = time.steps, FUN = function(ts){
   # que calcula imax agora considerando o ano hidrológico estabelecido
   # conforme `which.mon` (pegando a primeira observação `which.mon[1]`)
   # como o início do ano hidrológico
-  out <- imax.wateryear(data = current.ts,
-                        durations = valid.durations,
-                        which.mon = which.mon,
-                        names = c("datetime", "rain_mm"))
+  out <- imax.wateryear(
+    data = current.ts,
+    durations = valid.durations,
+    which.mon = which.mon,
+    names = c("datetime", "rain_mm")
+  )
   
 }) # fim 'imax.ls'
 
@@ -73,15 +91,15 @@ imax.ls <- lapply(X = time.steps, FUN = function(ts){
 # em `dry_months_frequency.R`, que possibilitou identificar meses com baixa frequência
 # de intensidades máximas anuais
 
-rm(df.data, data.ls, data.by.time); invisible(gc())
+rm(data.df, data.ls, data.by.time); invisible(gc())
 
 # Nomear lista
 names(imax.ls) <- time.steps
 
 # Salvar resultados
 # saveRDS(object = imax.ls, file = "base/gerados/imax_ls.rds")
-df.imax <- bind_rows(imax.ls)
+imax.df <- bind_rows(imax.ls)
 arrow::write_parquet(x = bind_rows(imax.ls), sink = "base/gerados/df_imax.pqt")
 
 # Ler arquivo c/ intensidades máximas
-df.imax <- arrow::read_parquet(file = "base/gerados/df_imax.pqt")
+imax.df <- arrow::read_parquet(file = "base/gerados/df_imax.pqt")

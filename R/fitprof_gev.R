@@ -643,7 +643,8 @@ imax.ls <- split(imax.df, imax.df$gauge_code)
 which.prior <- list(
   NULL, 
   c(0.0178, 0.0627),
-  c(0, 0.122)
+  c(0, 0.122),
+  c(-0.1, 0.122)
 )
 cols <- names(imax.df)
 method <- "L-BFGS-B"
@@ -681,14 +682,24 @@ saveRDS(fitprof.gev.wprior.ls, "base/gerados/ls_fit_gev_prof_wprior.rds")
 
 # Rodar função com priori quase-informativa
 prior.info <- which.prior[[3]]
-fitprof.gev.wprior.ls <- fitprof.gev(
+fitprof.gev.wprior.ninfo..ls <- fitprof.gev(
   data = imax.ls,
   prior.info = prior.info,
   return.period = return.period,
   cols = cols
 )
 
-fitprof.gev.wprior.ninfo.ls <- fitprof.gev.wprior.ls
-
 invisible(gc())
 saveRDS(fitprof.gev.wprior.ninfo.ls, "base/gerados/ls_fit_gev_prof_wprior_ninfo.rds")
+
+# Rodar função com priori Martins e Stedinger (2000)
+prior.info <- which.prior[[4]]
+fitprof.gev.wprior.martins.ls <- fitprof.gev(
+  data = imax.ls,
+  prior.info = prior.info,
+  return.period = return.period,
+  cols = cols
+)
+
+invisible(gc())
+saveRDS(fitprof.gev.wprior.martins.ls, "base/gerados/ls_fit_gev_prof_wprior_martins.rds")
