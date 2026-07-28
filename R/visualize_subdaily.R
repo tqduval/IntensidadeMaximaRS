@@ -183,6 +183,7 @@ which.prior <- unique(par.dgev.df$prior)
 prior.names <- paste(c("MLE", "RGMLE", "GMLE", "GMLE"), "–", gsub("c", "B", which.prior))
 prior.names <- gsub(" – NULL", "", prior.names)
 prior.names <- setNames(prior.names, which.prior)
+prior.names <- prior.names[c(1, 4, 3, 2)]
 par.dgev.df <- par.dgev.df |> mutate(model = prior.names[prior])
 idf.dgev.df <- idf.dgev.df |> mutate(model = prior.names[prior])
 
@@ -812,7 +813,7 @@ shape.prof.plot <- par.gev.df |>
   mutate(
     gauge_label = gauge.labels[gauge_code],
     prior_label = prior.names[prior]
-  ) |> 
+  ) |>  
   filter(
     parname == "kappa",
     prior_label == prior.names[3]
@@ -823,8 +824,8 @@ shape.prof.plot <- par.gev.df |>
   geom_hline(yintercept = 0, color = "grey80", linewidth = 0.2) +
   geom_errorbar(
     aes(ymin = ci_lower, ymax = ci_upper), 
-    width = 0, linewidth = 0.3, alpha = 0.7, color = colors[3], position = pos.width) +
-  geom_point(size = 0.15, position = pos.width, color = colors[3]) +
+    width = 0, linewidth = 0.3, alpha = 0.7, color = "#eb78b0", position = pos.width) +
+  geom_point(size = 0.15, position = pos.width, color = "#eb78b0") +
   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
   labs(y = "κ") +
   theme(
@@ -857,7 +858,7 @@ shape.prof.plot <- par.gev.df |>
   ) |> 
   filter(
     parname == "kappa",
-    prior_label == "GMLE"
+    prior_label == prior.names[3]
   ) |> 
   ggplot(aes(x = factor(d), y = par)) +
   facet_wrap(~factor(gauge_label, order.n), ncol = 4) +
@@ -865,8 +866,8 @@ shape.prof.plot <- par.gev.df |>
   geom_hline(yintercept = 0, color = "grey80", linewidth = 0.2) +
   geom_errorbar(
     aes(ymin = ci_lower, ymax = ci_upper), 
-    width = 0, linewidth = 0.3, alpha = 0.7, color = colors[3], position = pos.width) +
-  geom_point(size = 0.15, position = pos.width, color = colors[3]) +
+    width = 0, linewidth = 0.3, alpha = 0.7, color = "#eb78b0", position = pos.width) +
+  geom_point(size = 0.15, position = pos.width, color = "#eb78b0") +
   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
   labs(y = "κ") +
   theme(
@@ -1024,6 +1025,7 @@ nrow(proflik.q)
 ggplot(proflik.q, aes(x = q, y = loglik)) +
   geom_line() +
   geom_vline(xintercept = conf, linewidth = 0.3, linetype = "solid") +
+  geom_point(shape = 21, fill = "white") +
   geom_hline(yintercept = lim, linewidth = 0.3, linetype = "dashed") +
   annotate(geom = "text", label = round(lim,1), x = -Inf, y = lim, family = font, size = textsize*1.1, hjust = 1.19) +
   coord_cartesian(clip = "off") +
@@ -1356,10 +1358,12 @@ ggsave(sprintf("figuras/preliminares/growth_curve_pts_%s.png", gg), height = 8, 
 # Frequências observadas para cada estação estão em `freq.obs.df`
 # Aqui estamos recalculando as frequências, aproveitando o índice já calculado,
 # mas incluindo as posições de weibull, cunnane e gringorten
-freq.obs.df <- freq.obs.df |> 
-  ungroup() |> 
-  select(gauge_code, gauge_label, d, imax, i, n) |> 
+freq.obs.all.df <- imax.df |> 
+  group_by(gauge_code, d) |> 
+  arrange(gauge_code, d, desc(imax)) |> 
   mutate(
+    n = n(),
+    i = row_number(),
     p_weibull = i/(n + 1),
     p_cunnane = (i - 0.4)/(n + 1 - 2*0.4),
     p_gringorten = (i - 0.44)/(n + 1 - 2*0.44)
@@ -1391,14 +1395,14 @@ par.df <- par.df |>
 
 # Juntar frequências
 # Cada posição de plotagem deve ter 4 linhas, uma p/ cada priori
-performance.gev.df <- freq.obs.df |> 
+performance.gev.df <- freq.obs.all.df |> 
   inner_join(
     par.df |> filter(model == "GEV"),
     by = c("gauge_code", "d"),
     relationship = "many-to-many"
   )
 
-performance.dgev.df <- freq.obs.df |> 
+performance.dgev.df <- freq.obs.all.df |> 
   inner_join(
     par.df |> filter(model == "d-GEV") |> select(!d),
     by = "gauge_code",
@@ -1407,6 +1411,9 @@ performance.dgev.df <- freq.obs.df |>
 
 # Juntar tudo de novo
 performance.df <- bind_rows(performance.gev.df, performance.dgev.df)
+
+# Falta ajustar a IDF propriamente dita do modelo sem invariância de escala
+# os quantis estimados são só as curvas, a equação em si ainda precisa ser calculada.
 
 # Calcular quantis de intensidade de forma vetorizada
 performance.df <- performance.df |> 
@@ -1436,3 +1443,217 @@ performance.summary.df <- performance.df |>
     r_bias = n*sum(residual/sum_imax),
     .groups = "drop"
   )
+
+# Gráfico de barras das métricas p/ todas as durações
+# ordenado pelo valor da métrica de desempenho
+col <- c("#648FFF", "#dc267f", "#eb78b0", "#FE6100")
+prior.col <- setNames(col, prior.names)
+
+# Plotar gráficos diferentes p/ cada duração em vez de um
+# facet por duração
+# rRMSE
+width <- 0.6
+# pos <- position_dodge2(width + 0.2, preserve = "single", padding = 0.05)
+pos <- position_dodge(width + 0.2)
+
+# Gráfico barras GEV e d-GEV separados
+performance.summary.df |> 
+  filter(
+    plot_pos == "weibull",
+    model == "d-GEV", # alterar modelo aqui
+    d %in% c(1, 6, 12, 24)
+  ) |> 
+  mutate(prior = factor(prior, which.prior[c(1, 4, 3, 2)])) |> 
+  ggplot(aes(x = fct_reorder(gauge_code, r_rmse, .desc = TRUE), y = r_rmse, fill = prior)) +
+  facet_wrap(~factor(d), ncol = 1, scales = "free_y", labeller = as_labeller(function(x) sprintf("Duração: %s h", x))) +
+  geom_col(position = pos, width = width, linewidth = 0.2) +
+  coord_cartesian(ylim = c(0, 0.6)) +
+  scale_fill_manual(name = "Priori", values = setNames(col[c(1, 4, 3, 2)], which.prior)) +
+  labs(y = "rRMSE") +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = fontsize*0.8),
+    axis.title.x = element_blank(),
+    legend.box = "vertical",
+    axis.ticks.x = element_line(linewidth = 0.2, size = 0.2),
+    legend.spacing.y = unit(0, "pt")
+  ) +
+  guides(
+    alpha = guide_legend(order = 1),
+    fill = guide_legend(order = 2),
+  ); invisible(gc())
+
+# Gráfico barras GEV e d-GEV juntos
+performance.summary.df |> 
+  mutate(
+    prior_label = factor(prior, labels = prior.names),
+    model_prior = sprintf("%s__%s", model, prior_label),
+    model_prior = factor(model_prior, levels = c(
+      "GEV__MLE", "d-GEV__MLE",
+      "GEV__GMLE – B(-0.1, 0.122)", "d-GEV__GMLE – B(-0.1, 0.122)",
+      "GEV__GMLE – B(0, 0.122)", "d-GEV__GMLE – B(0, 0.122)",
+      "GEV__RGMLE – B(0.0178, 0.0627)", "d-GEV__RGMLE – B(0.0178, 0.0627)"
+    ))
+  ) |> 
+  select(gauge_code, d, plot_pos, model_prior, r_rmse, r_bias) |> 
+  filter(
+    plot_pos == "weibull",
+    d %in% c(1, 6, 12, 24)
+  ) |> 
+  ggplot(aes(
+    x = fct_reorder(gauge_code, r_rmse, .desc = TRUE), y = r_rmse, 
+    fill = model_prior, color = model_prior, alpha = model_prior
+  )) +
+  facet_wrap(~factor(d), ncol = 1, scales = "free_y", labeller = as_labeller(function(x) sprintf("Duração: %s h", x))) +
+  geom_col(position = pos, width = width, linewidth = 0) +
+  coord_cartesian(ylim = c(0, 0.6)) +
+  labs(y = "rRMSE") +
+  scale_alpha_manual(
+    values = c(
+      "GEV__RGMLE – B(0.0178, 0.0627)" = 0.5, 
+      "d-GEV__RGMLE – B(0.0178, 0.0627)" = 1.0, 
+      "GEV__MLE" = 0.5, 
+      "d-GEV__MLE" = 1.0,
+      "GEV__GMLE – B(-0.1, 0.122)" = 0.5,
+      "d-GEV__GMLE – B(-0.1, 0.122)" = 1.0,
+      "GEV__GMLE – B(0, 0.122)" = 0.5, 
+      "d-GEV__GMLE – B(0, 0.122)" = 1.0
+    ),
+    guide = "none"
+  ) +
+  scale_fill_manual(
+    name = "d-GEV", 
+    values = c(
+      "GEV__RGMLE – B(0.0178, 0.0627)" = col[4],
+      "d-GEV__RGMLE – B(0.0178, 0.0627)" = col[4], 
+      "GEV__MLE" = col[1], "d-GEV__MLE" = col[1],
+      "GEV__GMLE – B(-0.1, 0.122)" = col[2],
+      "d-GEV__GMLE – B(-0.1, 0.122)" = col[2],
+      "GEV__GMLE – B(0, 0.122)" = col[3], 
+      "d-GEV__GMLE – B(0, 0.122)" = col[3]
+    ),
+    breaks = c("d-GEV__MLE", "d-GEV__GMLE – B(-0.1, 0.122)", "d-GEV__GMLE – B(0, 0.122)", "d-GEV__RGMLE – B(0.0178, 0.0627)"),
+    labels = c("MLE", "GMLE – B(-0.1, 0.122)", "GMLE – B(0, 0.122)", "RGMLE – B(0.0178, 0.0627)"),
+    guide = guide_legend(
+      order = 2
+    )
+  ) +
+  scale_color_manual(
+    name = "GEV", 
+    values = c(
+      "GEV__RGMLE – B(0.0178, 0.0627)" = col[4], 
+      "d-GEV__RGMLE – B(0.0178, 0.0627)" = col[4], 
+      "GEV__MLE" = col[1], "d-GEV__MLE" = col[1],
+      "GEV__GMLE – B(-0.1, 0.122)" = col[2],
+      "d-GEV__GMLE – B(-0.1, 0.122)" = col[2],
+      "GEV__GMLE – B(0, 0.122)" = col[3], 
+      "d-GEV__GMLE – B(0, 0.122)" = col[3]
+    ),
+    breaks = c("GEV__MLE", "GEV__GMLE – B(-0.1, 0.122)", "GEV__GMLE – B(0, 0.122)", "GEV__RGMLE – B(0.0178, 0.0627)"),
+    labels = c("MLE", "GMLE – B(-0.1, 0.122)", "GMLE – B(0, 0.122)", "RGMLE – B(0.0178, 0.0627)"),
+    guide = guide_legend(
+      order = 1, override.aes = list(
+        fill = c(
+          "GEV__MLE" = col[1], "GEV__GMLE – B(-0.1, 0.122)" = col[2], 
+          "GEV__GMLE – B(0, 0.122)" = col[3], "GEV__RGMLE – B(0.0178, 0.0627)" = col[4]
+        ),
+        alpha = 0.6
+      )
+    )
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = fontsize*0.8),
+    axis.title.x = element_blank(),
+    panel.grid.major.y = element_line(linewidth = 0.2, linetype = "dashed", color = "grey70"),
+    legend.box = "vertical",
+    legend.spacing.y = unit(0, "pt"),
+    legend.margin = margin(t = 2)
+  ); invisible(gc())
+
+ggsave("figuras/preliminares/subdiarios/metricas_rrmse_weibull.png", width = 15.5, height = 20, units = "cm", dpi = 300)
+
+
+# Boxplot
+models <- c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE")
+
+# Quantas observações acima de um limite
+lim.rmse <- 0.7
+
+outliers <- performance.summary.df |> 
+  filter(
+    plot_pos == "weibull",
+    r_rmse > lim.rmse,
+    prior %in% which.prior[c(1,2)],
+    d %in% c(1, 3, 6, 9, 12, 18, 24)
+  ) |> 
+  mutate(
+    id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
+    d = fct_reorder(paste(d, "h"), d)
+  ) |> 
+  select(id, d, prior, model, r_rmse) |> 
+  arrange(id) |> 
+  group_by(d, prior, model) |> 
+  summarise(
+    min_r_rmse = min(r_rmse),
+    string = sprintf("[%s]", paste(id, collapse = ",")),
+    .groups = "drop"
+  )
+
+performance.boxplot <- performance.summary.df |> 
+  filter(
+    plot_pos == "weibull",
+    prior %in% which.prior[c(1,2)],
+    d %in% c(1, 3, 6, 9, 12, 18, 24)
+  ) |> 
+  mutate(
+    d = fct_reorder(paste(d, "h"), d),
+    prior = gsub(" .*", "", prior.names[prior]),
+    prior_label = factor(paste0(model, "_", prior), levels = c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE"))
+  ) |> 
+  select(gauge_code, d, model, prior_label, plot_pos, r_rmse, r_bias) |> 
+  ggplot(aes(x = d, y = r_rmse, fill = prior_label, alpha = prior_label)) +
+  geom_boxplot(
+    linewidth = 0.3, median.linewidth = 0.3, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.3,
+    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect"
+  ) +
+  geom_text(aes(x = d, y = lim.rmse, label = string), outliers, inherit.aes = FALSE, family = font, size = textsize*0.8) +
+  coord_cartesian(ylim = c(0, lim.rmse)) +
+  scale_fill_manual(
+    name = "GEV",
+    values = setNames(rep(col[c(1, 4)], each = 2), models),
+    breaks = models[c(1,3)],
+    labels = gsub(".*_", "", models[c(1,3)]),
+    guide = guide_legend(
+      override.aes = list(
+        alpha = 0.4, 
+        color = "black",
+        linewidth = 0.2
+      ))
+    ) +
+  scale_alpha_manual(
+    name = "d-GEV",
+    values = setNames(c(0.4, 0.95, 0.4, 0.95), models),
+    breaks = models[c(2,4)],
+    labels = gsub(".*_", "", models[c(2,4)]),
+    guide = guide_legend(
+      override.aes = list(
+        fill = setNames(col[c(1, 4)], models[c(2,4)]), 
+        color = "black",
+        linewidth = 0.2
+      ))
+  ) +
+  labs(x = NULL, y = "rRMSE") +
+  theme(
+    legend.position = c(0.99, 0.9),
+    legend.justification = c(1, 1),
+    legend.spacing.y = unit(-2, "pt"),
+    legend.title.position = "top",
+    panel.grid.major.y = element_line(linewidth = 0.2, linetype = "solid", color = "grey90"),
+    # legend.box = "horizontal",
+    # legend.title = element_text(margin = margin(b = 1)),
+    # legend.title = element_text(margin = margin(b = 1), hjust = 0.5),
+    legend.title = element_text(margin = margin(b = 1), hjust = 0)
+  ); performance.boxplot
+
+ggsave("figuras/preliminares/subdiarios/boxplot_metricas.png", performance.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+
+
