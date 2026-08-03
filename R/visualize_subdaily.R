@@ -190,26 +190,30 @@ idf.dgev.df <- idf.dgev.df |> mutate(model = prior.names[prior])
 durations <- c(1, 6, 12, 24)
 
 # Profiles
-prof.par <- bind_rows(
-  fitprof.dgev.nprior.ls$prof.par,       # 1
-  fitprof.dgev.wprior.ls$prof.par,       # 2
-  fitprof.dgev.wprior.ninfo.ls$prof.par, # 3
-  .id = "model"
-) |> 
-  mutate(
-    model = ifelse(model == 1, "MLE", "RGMLE")
-  ) |> 
-  relocate(model, .after = last_col())
+# prof.par <- bind_rows(
+#   fitprof.dgev.nprior.ls$prof.par,       # 1
+#   fitprof.dgev.wprior.ls$prof.par,       # 2
+#   fitprof.dgev.wprior.ninfo.ls$prof.par, # 3
+#   .id = "model"
+# ) |> 
+#   mutate(
+#     model = ifelse(model == 1, "MLE", "RGMLE")
+#   ) |> 
+#   relocate(model, .after = last_col())
 
-prof.q <- bind_rows(
-  fitprof.nprior.ls$prof.q, # 1
-  fitprof.wprior.ls$prof.q, # 2
-  .id = "model"
-) |> 
-  mutate(
-    model = ifelse(model == 1, "MLE", "RGMLE")
-  ) |> 
-  relocate(model, .after = last_col())
+# prof.q <- bind_rows(
+#   fitprof.nprior.ls$prof.q, # 1
+#   fitprof.wprior.ls$prof.q, # 2
+#   .id = "model"
+# ) |> 
+#   mutate(
+#     model = ifelse(model == 1, "MLE", "RGMLE")
+#   ) |> 
+#   relocate(model, .after = last_col())
+
+# Remover `fitprof.dgev` do ambiente
+rm(list = ls()[grepl("fitprof.dgev", ls())])
+invisible(gc())
 
 
 ## GEV POR DURAÇÃO -------------------------------------------------------
@@ -240,6 +244,9 @@ idf.gev.df <- bind_rows(
   fitprof.gev.wprior.ninfo.ls$idf,
   fitprof.gev.wprior.martins.ls$idf
 )
+
+rm(list = ls()[grepl("fitprof.gev", ls())])
+invisible(gc())
 
 # VISUALIZAÇÃO -----------------------------------------------------------
 
@@ -1387,9 +1394,7 @@ par.df <- bind_rows(
   par.gev.df |> mutate(model = "GEV"),
   par.dgev.df |> mutate(model = "d-GEV")
 ) |> 
-  select(gauge_code, model, d, parname, par, ci_lower, ci_upper, prior)
-
-par.df <- par.df |> 
+  select(gauge_code, model, d, parname, par, ci_lower, ci_upper, prior) |> 
   group_by(gauge_code, model, d, prior) |> 
   reframe(par = list(setNames(par, parname))) # listar parâmetros
 
@@ -1657,3 +1662,385 @@ performance.boxplot <- performance.summary.df |>
 ggsave("figuras/preliminares/subdiarios/boxplot_metricas.png", performance.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
 
+# A comparação entre GEV e d-GEV não está sendo feita da maneira "justa" com
+# o modelo de invariância de escala, afinal estamos comparando as curvas ajustadas
+# por duração com um modelo que já fornece a IDF em si, e não IDF com IDF
+
+# Visualização
+ds <- unique(performance.df$d)
+
+gg <- "A801"
+performance.df |> 
+  filter(
+    model == "GEV",
+    prior == which.prior[2],
+    plot_pos == "weibull",
+    gauge_code == gg
+  ) |> 
+  mutate(
+    return_period = 1/p
+  ) |> 
+  ggplot(aes(x = d, y = q, color = factor(return_period))) +
+  geom_line() +
+  labs(subtitle = gg) +
+  scale_x_log10() +
+  scale_y_log10()
+
+# Método Atlas Pluviométrico
+# Organizar os dados em matriz (d x return_period)
+imax.matrix <- performance.df |> 
+  filter(
+    model == "GEV",
+    prior == which.prior[2],
+    plot_pos == "weibull",
+    gauge_code == gg
+  ) |> 
+  mutate(
+    return_period = 1/p
+  ) |> 
+  pivot_wider(
+    id_cols = d,
+    names_from = return_period,
+    values_from = q
+  ) |> 
+  column_to_rownames(var = "d") |> 
+  as.matrix() |> print()
+
+return.period <- c(5, 10, 20, 30, 50, 60, 70, 80, 90, 100, 200)
+
+rp <- as.numeric(colnames(imax.matrix))
+
+ln.imax.matrix <- log(imax.matrix)
+
+theta0 <- 0
+ln.ds <- log(ds + theta0)
+
+# Modelo IDF --- i = kT^lambda/(d + theta)^eta
+# Em papel log-log ln(i) = ln(k) + lambda*ln(T) - eta*ln(d + theta), ou
+# ln(i) = ln(A) - eta*ln(d + theta), sendo ln(A) = ln(k) + lambda*ln(T)
+
+## Encontrar theta que lineariza ln(I) x ln(t + theta)
+theta.fo <- function(par, ln.imax, ds){
+  ln.ds <- log(ds + par)
+  lm.fit <- lm(formula = ln.imax ~ ln.ds)
+  res <- sigma(lm.fit)
+  return(res)
+}
+
+thetas <- apply(ln.imax.matrix, 2, function(ln.imax){
+  
+  theta.fit <- optimize(
+    f = theta.fo,
+    interval = c(-min(ds) + 0.0001, 100),
+    # interval = c(0, 100),
+    tol = 1e-4,
+    ln.imax = ln.imax,
+    ds = ds,
+    maximum = FALSE
+  )
+  
+  return(theta.fit$minimum)
+  
+})
+
+# theta <- mean(thetas)
+ln.ds <- log(ds + theta)
+n.ds <- length(ds)
+n.rp <- length(rp)
+
+# Encontrar ln(A) e eta resolvendo um sistema de equações
+aux1 <- sum(ln.imax)*sum(ln.ds^2) - sum(ln.ds)*sum(ln.imax*ln.ds)
+aux2 <- n.ds*sum(ln.ds^2) - sum(ln.ds)^2
+aux3 <- sum(ln.ds)*sum(ln.imax) - n.ds*sum(ln.imax*ln.ds)
+ln.A <- aux1/aux2 # ln(A)
+eta <- aux3/aux2  # eta
+
+# Encontrar ln(k) e lambda
+ln.rp <- log(rp)
+aux4 <- sum(ln.rp^2)*sum(ln.A*ln.rp)*sum(ln.rp)
+aux5 <- n.rp*sum(ln.rp)^2 - sum(ln.rp)^2
+aux6 <- n.rp*sum(ln.A*ln.rp) - sum(ln.rp)*sum(ln.A)
+ln.k <- aux4/aux5   # ln(k)
+k <- exp(1)^ln.k
+lambda <- aux6/aux5 # lambda
+
+idf.emp <- function(k, lambda, theta, eta, return.period, duration){
+  k*return.period^lambda/(duration + theta)^eta
+}
+
+apply(X)
+
+d.rp <- expand.grid(d = ds, return_period = rp)
+d.rp |> 
+  mutate(
+    q = idf.emp(k, lambda, theta, eta, rp, d)
+  ) |> 
+  arrange(return_period) |> 
+  filter(return_period == 20) |> 
+  ggplot(aes(x = d, y = q, color = factor(return_period))) +
+  geom_line() +
+  scale_y_log10() +
+  scale_x_log10()
+
+# Construindo a função
+# Argumentos iniciais
+duration.vec <- seq_len(24)
+p.nexceed.vec <- 1 - 1/return.period
+par.matrix <- par.df |> 
+  filter(
+    gauge_code == "A801",
+    prior == which.prior[2],
+    model == "GEV"
+  ) |> 
+  select(d, par) |> 
+  unnest_wider(par) |> # faz o unlist e transforma em novas colunas
+  column_to_rownames(var = "d") |> 
+  as.matrix() |> print()
+
+# Construindo uma matriz de quantis estimados p/ diferentes tempos de retorno
+q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
+dimnames(q.matrix) <- list(duration.vec, return.period)
+
+# Obter estimativas iniciais dos parâmetros dad GEV convencional
+ln.q.matrix <- log(q.matrix)
+
+## `theta`
+## Encontrar theta que lineariza ln(I) x ln(t + theta)
+theta.fo <- function(par, ln.imax, ds){
+  ln.ds <- log(ds + par)
+  lm.fit <- lm(formula = ln.imax ~ ln.ds)
+  res <- sigma(lm.fit)
+  return(res)
+}
+
+# ln.q <- ln.q.matrix[,1]
+# ds <- duration.vec
+
+## Estimativas de `ln(A)` e `eta`
+est.by.rp <- apply(ln.q.matrix, 2, function(ln.q, ds){
+
+  theta.fit <- optimize(
+    f = theta.fo,
+    interval = c(-min(ds) + 0.0001, max(ds)),
+    # interval = c(0, 100),
+    tol = 1e-4,
+    ln.imax = ln.q,
+    ds = ds,
+    maximum = FALSE
+  )
+
+  theta <- theta.fit$minimum
+  ln.ds <- log(duration.vec + theta) # ln das durações + theta
+  n.ds <- length(duration.vec)       # nro. durações
+  sum.ds <- sum(ln.ds)
+  sum.ds2 <- sum(ln.ds^2)
+  sum.q <- sum(ln.q)
+  sum.q.ds <- sum(ln.q*ln.ds)
+
+  aux.A <- sum.q*sum.ds2 - sum.ds*sum.q.ds
+  aux.eta <- sum.ds*sum.q - n.ds*sum.q.ds
+  term <- n.ds*sum.ds2 - sum.ds^2
+  
+  log.A <- aux.A/term
+  eta <- aux.eta/term
+
+  return(c(lnA = log.A, eta = eta))
+
+}, ds = duration.vec)
+
+ln.A <- est.by.rp["lnA",]
+eta <- mean(est.by.rp["eta",])
+
+## Obter estimativa de `ln(k)` e `lambda`
+n.rp <- length(return.period)      # nro. tempos de retorno 
+ln.rp <- log(return.period)
+sum.rp <- sum(ln.rp)
+sum.A <- sum(ln.A)
+sum.rp2 <- sum(ln.rp^2)
+sum.A.rp <- sum(ln.A*ln.rp)
+aux.k <- sum.rp2*sum.A - sum.A.rp*sum.rp
+aux.lambda <- n.rp*sum.A.rp - sum.rp*sum.A
+term <- n.rp*sum.rp2 - sum.rp^2
+
+ln.k <- aux.k/term        # ln(k)
+k <- exp(1)^ln.k          # k
+lambda <- aux.lambda/term # lambda
+
+par0 <- idf.par0(duration.vec, par.matrix, p.nexceed.vec)
+
+idf <- function(par, return.period, duration){
+  k <- par[[1]]; lambda <- par[[2]]; eta <- par[[3]]; theta <- par[[4]]
+  k*return.period^lambda/(duration + theta)^eta
+}
+
+qsgb.matrix <- sapply(return.period, idf, par = par0, duration = duration.vec)
+dimnames(qsgb.matrix) <- list(duration.vec, return.period)
+
+q.vec <- as.vector(q.matrix)
+qsgb.vec <- as.vector(qsgb.matrix)
+res <- q.vec - qsgb.vec
+
+rmse <- (sum(res^2)/(length(res) - 1))
+
+idf.fo <- function(par, q.base.vec, return.period, duration){
+  tryCatch({
+    q.est.vec <- as.vector(sapply(return.period, idf, par = par, duration = duration.vec))
+    res <- q.base.vec - q.est.vec
+    return((sum(res^2)/(length(res) - 1))^0.5)
+  }, error = function(e){
+    conditionMessage(e)
+    NULL
+  }
+  )
+}
+
+fit.obj <- optim(
+  par = par0,
+  fn = idf.fo,
+  method = "L-BFGS-B",
+  control = list(maxit = 1e8, factr = 1e9, pgtol = 1e-8),
+  lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
+  upper = c(Inf, Inf, 0.9999, Inf),
+  q.base.vec = q.vec,
+  return.period = return.period,
+  duration = duration.vec
+)
+
+opt.par <- fit.obj$par
+opt.matrix <- sapply(return.period, idf, par = opt.par, duration = duration.vec)
+dimnames(opt.matrix) <- list(duration.vec, return.period)
+
+# Original, IDF da análise de frequência somente o ajuste da GEV
+q.base.df <- q.matrix |> 
+  as.data.frame() |> 
+  rownames_to_column(var = "d") |> 
+  mutate(
+    d = as.numeric(d),
+    which_model = "base"
+  ) |> 
+  pivot_longer(
+    cols = -c(d, which_model),
+    names_to = "return_period",
+    names_transform = as.numeric,
+    values_to = "q"
+  )
+
+# Estimado com o ajuste da IDF
+q.est.df <- opt.matrix |> 
+  as.data.frame() |> 
+    rownames_to_column(var = "d") |> 
+    mutate(
+      d = as.numeric(d),
+      which_model = "est"
+    ) |> 
+    pivot_longer(
+      cols = -c(d, which_model),
+      names_to = "return_period",
+      names_transform = as.numeric,
+      values_to = "q"
+    )
+
+qsgb.matrix |> 
+  as.data.frame() |> 
+  rownames_to_column(var = "d") |> 
+  mutate(d = as.numeric(d)) |> 
+  pivot_longer(
+    cols = -d,
+    names_to = "return_period",
+    names_transform = as.numeric,
+    values_to = "q"
+  ) |> 
+  ggplot(aes(x = d, y = q, color = factor(return_period))) +
+  geom_line() +
+  scale_x_log10() +
+  scale_y_log10()
+
+ggplot(mapping = aes(x = d, y = q, group = return_period, color = which_model)) +
+  geom_line(data = q.base.df, linewidth = 1) +
+  geom_line(data = q.est.df, linewidth = 0.3, alpha = 0.8) +
+  labs(x = "Duração [h]", y = "Intensidade [mm/h]", subtitle = gg) +
+  scale_x_log10() +
+  scale_y_log10() +
+  scale_color_manual(name = "Modelos", values = c("base" = "grey80", "est" = "black"), labels = c("GEV por duração", "IDF convencional")) +
+  theme(
+    legend.position = c(0.99, 0.98),
+    legend.justification = c(1,1),
+    panel.grid.major.x = element_line(linewidth = 0.3, color = "grey80", linetype = "dashed")
+  )
+
+ggsave(sprintf("figuras/preliminares/subdiarios/idf_convencional_%s.png", gg), width = 12, height = 8, units = "cm", dpi = 300)
+
+idf.par0 <- function(duration.vec, par.matrix, p.nexceed.vec){
+  
+  # Construindo uma matriz de quantis estimados p/ diferentes tempos de retorno
+  q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
+  dimnames(q.matrix) <- list(duration.vec, return.period)
+  
+  # Obter estimativas iniciais dos parâmetros dad GEV convencional
+  ln.q.matrix <- log(q.matrix)
+  
+  ## `theta`
+  ## Encontrar theta que lineariza ln(I) x ln(t + theta)
+  theta.fo <- function(par, ln.imax, ds){
+    ln.ds <- log(ds + par)
+    lm.fit <- lm(formula = ln.imax ~ ln.ds)
+    res <- sigma(lm.fit)
+    return(res)
+  }
+  
+  # ln.q <- ln.q.matrix[,1]
+  # ds <- duration.vec
+  
+  ## Estimativas de `ln(A)` e `eta`
+  est.by.rp <- apply(ln.q.matrix, 2, function(ln.q, ds){
+  
+    theta.fit <- optimize(
+      f = theta.fo,
+      interval = c(-min(ds) + 0.0001, max(ds)),
+      # interval = c(0, 100),
+      tol = 1e-4,
+      ln.imax = ln.q,
+      ds = ds,
+      maximum = FALSE
+    )
+  
+    theta <- theta.fit$minimum
+    ln.ds <- log(duration.vec + theta) # ln das durações + theta
+    n.ds <- length(duration.vec)       # nro. durações
+    sum.ds <- sum(ln.ds)
+    sum.ds2 <- sum(ln.ds^2)
+    sum.q <- sum(ln.q)
+    sum.q.ds <- sum(ln.q*ln.ds)
+  
+    aux.A <- sum.q*sum.ds2 - sum.ds*sum.q.ds
+    aux.eta <- sum.ds*sum.q - n.ds*sum.q.ds
+    term <- n.ds*sum.ds2 - sum.ds^2
+    
+    log.A <- aux.A/term
+    eta <- aux.eta/term
+  
+    return(c(lnA = log.A, eta = eta))
+  
+  }, ds = duration.vec)
+  
+  ln.A <- est.by.rp["lnA",]
+  eta <- mean(est.by.rp["eta",])
+  
+  ## Obter estimativa de `ln(k)` e `lambda`
+  n.rp <- length(return.period)      # nro. tempos de retorno 
+  ln.rp <- log(return.period)
+  sum.rp <- sum(ln.rp)
+  sum.A <- sum(ln.A)
+  sum.rp2 <- sum(ln.rp^2)
+  sum.A.rp <- sum(ln.A*ln.rp)
+  aux.k <- sum.rp2*sum.A - sum.A.rp*sum.rp
+  aux.lambda <- n.rp*sum.A.rp - sum.rp*sum.A
+  term <- n.rp*sum.rp2 - sum.rp^2
+  
+  ln.k <- aux.k/term        # ln(k)
+  k <- exp(1)^ln.k          # k
+  lambda <- aux.lambda/term # lambda
+  
+  return(c(k = k, lambda = lambda, eta = eta, theta = theta))
+
+}
