@@ -95,7 +95,7 @@ idf.sgb <- function(par, return.period, duration){
 #' @title Função objetivo: calcular RMSE
 idf.fo <- function(par, q.base.vec, return.period, duration){
   tryCatch({
-    q.est.vec <- as.vector(sapply(return.period, idf.sgb, par = par, duration = duration.vec))
+    q.est.vec <- as.vector(sapply(return.period, function(rp) idf.sgb(par, rp, duration)))
     res <- q.base.vec - q.est.vec
     return((sum(res^2)/(length(res) - 1))^0.5)
   }, error = function(e){
@@ -121,9 +121,9 @@ fsgb.idf <- function(par.matrix, duration.vec, return.period){
       par = start,
       fn = idf.fo,
       method = "L-BFGS-B",
-      control = list(maxit = 1e8, factr = 1e9, pgtol = 1e-8),
+      control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
       lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
-      upper = c(Inf, Inf, 0.9999, Inf),
+      upper = c(Inf, Inf, Inf, Inf),
       q.base.vec = as.vector(q.matrix),
       return.period = return.period,
       duration = duration.vec
@@ -138,21 +138,70 @@ fsgb.idf <- function(par.matrix, duration.vec, return.period){
 
 }
 
+#### TESTE ####
+
+# REFAZER NO EXCEL, AVALIAR PQ ALGUMAS EQUAÇÕES ESTÃO TÃO CURVADAS
+
+gg <- "A802"
+par.ls <- par.lmom.ls
+par.matrix <- par.ls[[gg]]
+duration.vec <- NULL
+return.period <- 2^seq_len(8)
+
+par.gg <- fit.obj$par |> print()
+
+idf.gg <- freq.obs.all.df |> 
+  filter(
+    gauge_code == gg,
+    plot_pos == "weibull"
+  ) |> 
+  select(gauge_code, wateryear, d, imax, p, return_period) |> 
+  rowwise() |> 
+  mutate(
+    q = idf.sgb(par = par.gg, return.period = return_period, duration = d)
+  ) |> print()
+
+idf.gg |> 
+  pivot_wider(
+    id_cols = d,
+    names_from = return_period,
+    values_from = imax
+  ) |> 
+  as.matrix()
+
+idf.gg |> 
+  ggplot(aes(x = d, group = factor(return_period))) +
+  geom_line(aes(y = imax, color = factor(return_period))) +
+  # geom_line(aes(y = imax, color = "Intensidades observadas")) +
+  # geom_line(aes(y = q, color = "IDF-SGB")) +
+  annotate(
+    geom = "text", x = Inf, y = Inf, 
+    label = sprintf("k: %0.0f\nλ: %0.3f\nη: %0.3f\nθ: %0.3f", par.gg[1], par.gg[2], par.gg[3], par.gg[4]),
+    family = font, hjust = 1.1, vjust = 1.1
+  ) +
+  # scale_color_manual(name = NULL, values = c("Intensidades observadas" = "grey70", "IDF-SGB" = "black")) +
+  scale_x_log10() +
+  scale_y_log10()
+
+
+#### FIM TESTE ####
+
 #' @title Ajustar o modelo final de IDF
 fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
 
   idf.ls <- pbapply::pblapply(seq_along(par.ls), function(i){
 
+    if(is.null(duration.vec)) duration.vec <- as.numeric(rownames(par.matrix))
     gg <- names(par.ls[i])
     par.matrix <- par.ls[[i]]
     inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
 
     # Estimar parâmetros iniciais
-    p.nexceed.vec <- 1 - 1/return.period
-    q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
-    dim.names <- list(duration.vec, return.period)
+    p.nexceed.vec <- 1 - 1/return.period # probabilidade de não excedência
+    q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE)) # quantis da GEV
+    dim.names <- list(duration.vec, return.period) # nome linhas e colunas
     dimnames(q.matrix) <- dim.names
-    start <- start.idf(duration.vec, q.matrix, return.period)
+    start <- start.idf(duration.vec, q.matrix, return.period) # estimar parâmetros iniciais
 
     # Otimizar parâmetros iniciais
     fit.obj <- tryCatch(
@@ -160,9 +209,9 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
         par = start,
         fn = idf.fo,
         method = "L-BFGS-B",
-        control = list(maxit = 1e8, factr = 1e9, pgtol = 1e-8),
+        control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
         lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
-        upper = c(Inf, Inf, 0.9999, Inf),
+        upper = c(Inf, Inf, Inf, Inf),
         q.base.vec = as.vector(q.matrix),
         return.period = return.period,
         duration = duration.vec
@@ -173,19 +222,16 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
       }
     )
 
+    # Extrair parâmetros finais
     if(!is.null(fit.obj)){
-
       opt.par <- fit.obj$par
-  
       idf.par <- data.frame(
         gauge_code = gg, 
         t(opt.par), 
         optim_fail = 0, 
         inf_var = inf.var
       )
-
     } else{
-
       idf.par <- data.frame(
         gauge_code = gg, 
         k = NA_real_,
@@ -195,7 +241,6 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
         optim_fail = 1, 
         inf_var = inf.var
       )
-
     }
 
     return(par = idf.par)
@@ -234,7 +279,7 @@ buildsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
     q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
     dim.names <- list(duration.vec, return.period)
     dimnames(q.matrix) <- dim.names
-    start <- start.idf(duration.vec, q.matrix, p.nexceed.vec)
+    start <- start.idf(duration.vec, q.matrix, return.period)
 
     # Otimizar parâmetros iniciais
     fit.obj <- tryCatch(
@@ -242,9 +287,9 @@ buildsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
         par = start,
         fn = idf.fo,
         method = "L-BFGS-B",
-        control = list(maxit = 1e8, factr = 1e9, pgtol = 1e-8),
+        control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
         lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
-        upper = c(Inf, Inf, 0.9999, Inf),
+        upper = c(Inf, Inf, Inf, Inf),
         q.base.vec = as.vector(q.matrix),
         return.period = return.period,
         duration = duration.vec
