@@ -1414,13 +1414,23 @@ par.lmom.ls <- split(imax.df, imax.df$gauge_code) |>
 
 # Falta ajustar a IDF propriamente dita do modelo sem invariância de escala
 # os quantis estimados são só as curvas, a equação em si ainda precisa ser calculada.
+duration.vec <- unique(imax.df$d)
+
+fsgb.idf(par = par.lmom.ls[[8]], duration.vec = duration.vec, return.period = 2^seq_len(8))
+
 sgb.df <- fitsgb.idf(
   par.ls = par.lmom.ls,
-  duration.vec = NULL, # usa os que já estão nos dados
+  duration.vec = duration.vec, # usa os que já estão nos dados
   return.period = c(1.05, 2, 5, 10, 20, 30, 50, 70, 90, 100, 200)
 ) |> print()
 
 # Estimativas de intensidade p/ frequências observadas
+
+# VERIFICAR ESSES CÁLCULOS, ERROS FICAM PROGRESSIVAMENTE MAIORES
+# COM DURAÇÕES MAIORES
+
+# MUITAS ESTAÇÕES ESTÃO COM `ETAS` COLADOS EM 0.9999
+
 freq.obs.sgb <- freq.obs.all.df |> left_join(sgb.df, by = "gauge_code")
 performance.sgb.df <- freq.obs.sgb |> 
   mutate(
@@ -1434,21 +1444,9 @@ performance.sgb.df <- freq.obs.sgb |>
         }
       }
     ),
-    residual = imax - q,
-    model = "IDF-SGB"
+    residual = imax - q, # calcular resíduos
+    model = "IDF-SGB"    # atribuir nome ao modelo p/ combinar com outros depois
   )
-
-# freq.obs.sgb |> 
-#   rowwise() |> 
-#   mutate(
-#     q = if(any(is.na(c(k, lambda, eta, theta)))){
-#       NA_real_
-#     } else{
-#       idf.sgb(par = c(k, lambda, eta, theta), return_period, d)
-#     },
-#     residual = imax - q
-#   ) |> 
-#   ungroup()
 
 # Juntar frequências
 # Cada posição de plotagem deve ter 4 linhas, uma p/ cada priori
@@ -1467,10 +1465,7 @@ performance.dgev.df <- freq.obs.all.df |>
   )
 
 # Juntar tudo de novo
-performance.df <- bind_rows(performance.gev.df, performance.dgev.df)
-
-# Calcular quantis de intensidade de forma vetorizada
-performance.df <- performance.df |> 
+performance.df <- bind_rows(performance.gev.df, performance.dgev.df) |> 
   mutate(
     q = purrr::pmap_dbl(
       .l = list(model, par, d, p), # lista de parâmetros
@@ -1484,7 +1479,8 @@ performance.df <- performance.df |>
     ),
     residual = imax - q
   ) |> 
-  bind_rows(performance.sgb.df)
+  bind_rows(performance.sgb.df) |> # juntar c/ resultados c/ IDF-SGB
+  select(gauge_code, n, d, plot_pos, model, prior, p, return_period, imax, q, residual) |> print()
 
 
 # Calcular métricas, os somatórios ocorrem nas probabilidades
@@ -1497,7 +1493,7 @@ performance.summary.df <- performance.df |>
     r_rmse = sqrt(n*sum(residual/sum_imax)^2),
     r_bias = n*sum(residual/sum_imax),
     .groups = "drop"
-  )
+  ) |> print()
 
 # Gráfico de barras das métricas p/ todas as durações
 # ordenado pelo valor da métrica de desempenho
@@ -1628,7 +1624,7 @@ ggsave("figuras/preliminares/subdiarios/metricas_rrmse_weibull.png", width = 15.
 
 
 # Boxplot
-models <- c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE")
+models <- c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE", "IDF-SGB")
 
 # Quantas observações acima de um limite
 lim.rmse <- 0.7
@@ -1653,6 +1649,8 @@ outliers <- performance.summary.df |>
     .groups = "drop"
   )
 
+# Comparar com boxplots as estimativas com a GEV ajustada por duração e a d-GEV
+# com diferentes níveis de informação adicional
 performance.boxplot <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
@@ -1674,7 +1672,7 @@ performance.boxplot <- performance.summary.df |>
   coord_cartesian(ylim = c(0, lim.rmse)) +
   scale_fill_manual(
     name = "GEV",
-    values = setNames(rep(col[c(1, 4)], each = 2), models),
+    values = setNames(rep(col[c(1, 4)], each = 2), models[-5]),
     breaks = models[c(1,3)],
     labels = gsub(".*_", "", models[c(1,3)]),
     guide = guide_legend(
@@ -1686,7 +1684,7 @@ performance.boxplot <- performance.summary.df |>
     ) +
   scale_alpha_manual(
     name = "d-GEV",
-    values = setNames(c(0.4, 0.95, 0.4, 0.95), models),
+    values = setNames(c(0.4, 0.95, 0.4, 0.95), models[-5]),
     breaks = models[c(2,4)],
     labels = gsub(".*_", "", models[c(2,4)]),
     guide = guide_legend(
@@ -1715,6 +1713,63 @@ ggsave("figuras/preliminares/subdiarios/boxplot_metricas.png", performance.boxpl
 # A comparação entre GEV e d-GEV não está sendo feita da maneira "justa" com
 # o modelo de invariância de escala, afinal estamos comparando as curvas ajustadas
 # por duração com um modelo que já fornece a IDF em si, e não IDF com IDF
+
+# Então comparamos a IDF-SGB com as estimativas da d-GEV com e sem informação adicional
+performance.boxplot <- performance.summary.df |> 
+  filter(
+    plot_pos == "weibull",
+    model %in% c("IDF-SGB", "d-GEV"),
+    prior %in% c(which.prior[c(1,2)], NA),
+    d %in% c(1, 3, 6, 9, 12, 18, 24)
+  ) |> 
+  mutate(
+    d = fct_reorder(paste(d, "h"), d),
+    prior = gsub(" .*", "", prior.names[prior]),
+    prior_label = factor(paste0(model, "_", prior), levels = c("IDF-SGB_", "d-GEV_MLE", "d-GEV_RGMLE"))
+  ) |> 
+  select(gauge_code, d, model, prior_label, plot_pos, r_rmse, r_bias) |> 
+  ggplot(aes(x = d, y = r_rmse, fill = prior_label, alpha = prior_label)) +
+  geom_boxplot(
+    linewidth = 0.3, median.linewidth = 0.3, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.3,
+    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect"
+  ) +
+  geom_text(aes(x = d, y = lim.rmse, label = string), outliers, inherit.aes = FALSE, family = font, size = textsize*0.8) +
+  # coord_cartesian(ylim = c(0, lim.rmse)) +
+  scale_fill_manual(
+    name = "IDF-SGB",
+    values = setNames("grey80", models[5]),
+    breaks = models[5],
+    guide = guide_legend(
+      override.aes = list(
+        alpha = 0.4, 
+        color = "black",
+        linewidth = 0.2
+      ))
+    ) +
+  scale_alpha_manual(
+    name = "d-GEV",
+    values = setNames(c(0.95, 0.95), models[c(2, 4)]),
+    breaks = models[c(2,4)],
+    labels = gsub(".*_", "", models[c(2,4)]),
+    guide = guide_legend(
+      override.aes = list(
+        fill = setNames(col[c(1, 4)], models[c(2,4)]), 
+        color = "black",
+        linewidth = 0.2
+      ))
+  ) +
+  labs(x = NULL, y = "rRMSE") +
+  theme(
+    legend.position = c(0.99, 0.9),
+    legend.justification = c(1, 1),
+    legend.spacing.y = unit(-2, "pt"),
+    legend.title.position = "top",
+    panel.grid.major.y = element_line(linewidth = 0.2, linetype = "solid", color = "grey90"),
+    # legend.box = "horizontal",
+    # legend.title = element_text(margin = margin(b = 1)),
+    # legend.title = element_text(margin = margin(b = 1), hjust = 0.5),
+    legend.title = element_text(margin = margin(b = 1), hjust = 0)
+  ); performance.boxplot
 
 # Visualização
 ds <- unique(performance.df$d)

@@ -26,7 +26,7 @@ theta.fo <- function(par, ln.imax, ds){
 }
 
 #' @title Estimar parâmetros iniciais do modelo IDF convencional
-start.idf <- function(duration.vec, qgev.matrix, p.nexceed.vec){
+start.idf <- function(duration.vec, qgev.matrix, return.period){
   
   # Construindo uma matriz de quantis estimados p/ diferentes tempos de retorno
   ln.q.matrix <- log(qgev.matrix)
@@ -104,30 +104,16 @@ idf.fo <- function(par, q.base.vec, return.period, duration){
   })
 }
 
-fsgb.idf <- function(par, duration.vec, return.period){
+fsgb.idf <- function(par.matrix, duration.vec, return.period){
 
   inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
-  durations.gg <- as.numeric(rownames(par.matrix))
-
-  if(is.null(duration.vec)){
-    duration.vec <- durations.gg
-  }
-
-  if(isFALSE(any(durations.gg %in% duration.vec))){
-    stop(sprintf("Posto %s:\nAlgumas durações em `duration.vec` não estão em `par.ls[['%s']]$d`", gg, gg))
-  }
-
-  if(any(!duration.vec %in% durations.gg)){
-    warning(sprintf("Posto %s:\nAlgumas durações em `duration.vec` não estão em `par.ls[['%s']]$d` e não serão utilizadas.", gg, gg))
-    duration.vec <- duration.vec[duration.vec %in% durations.gg]
-  }
 
   # Estimar parâmetros iniciais
   p.nexceed.vec <- 1 - 1/return.period
   q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
   dim.names <- list(duration.vec, return.period)
   dimnames(q.matrix) <- dim.names
-  start <- start.idf(duration.vec, q.matrix, p.nexceed.vec)
+  start <- start.idf(duration.vec, q.matrix, return.period)
 
   # Otimizar parâmetros iniciais
   fit.obj <- tryCatch(
@@ -143,7 +129,7 @@ fsgb.idf <- function(par, duration.vec, return.period){
       duration = duration.vec
     ),
     error = function(e){
-      warning(sprintf("Posto %s: erro durante otimização dos parâmetros iniciais:\n", conditionMessage(e)))
+      warning(sprintf("Erro durante otimização dos parâmetros iniciais:\n%s", conditionMessage(e)))
       NULL
     }
   )
@@ -160,27 +146,13 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
     gg <- names(par.ls[i])
     par.matrix <- par.ls[[i]]
     inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
-    durations.gg <- as.numeric(rownames(par.matrix))
-
-    if(is.null(duration.vec)){
-      duration.vec <- durations.gg
-    }
-
-    if(isFALSE(any(durations.gg %in% duration.vec))){
-      stop(sprintf("Posto %s:\nAlgumas durações em `duration.vec` não estão em `par.ls[['%s']]$d`", gg, gg))
-    }
-
-    if(any(!duration.vec %in% durations.gg)){
-      warning(sprintf("Posto %s:\nAlgumas durações em `duration.vec` não estão em `par.ls[['%s']]$d` e não serão utilizadas.", gg, gg))
-      duration.vec <- duration.vec[duration.vec %in% durations.gg]
-    }
 
     # Estimar parâmetros iniciais
     p.nexceed.vec <- 1 - 1/return.period
     q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
     dim.names <- list(duration.vec, return.period)
     dimnames(q.matrix) <- dim.names
-    start <- start.idf(duration.vec, q.matrix, p.nexceed.vec)
+    start <- start.idf(duration.vec, q.matrix, return.period)
 
     # Otimizar parâmetros iniciais
     fit.obj <- tryCatch(
@@ -196,7 +168,7 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
         duration = duration.vec
       ),
       error = function(e){
-        warning(sprintf("Posto %s: erro durante otimização dos parâmetros iniciais:\n", conditionMessage(e)))
+        warning(sprintf("Posto %s: erro durante otimização dos parâmetros iniciais :\n%s", gg, conditionMessage(e)))
         NULL
       }
     )
@@ -205,13 +177,24 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
 
       opt.par <- fit.obj$par
   
-      idf.par <- data.frame(gauge_code = gg, t(opt.par), optim_fail = 0, inf_var = inf.var)
-      quantiles <- quantiles
+      idf.par <- data.frame(
+        gauge_code = gg, 
+        t(opt.par), 
+        optim_fail = 0, 
+        inf_var = inf.var
+      )
 
     } else{
 
-      idf.par <- data.frame(gauge_code = gg, t(rep(NA_real_, 3)), optim_fail = 1, inf_var = inf.var)
-      quantiles <- NULL
+      idf.par <- data.frame(
+        gauge_code = gg, 
+        k = NA_real_,
+        lambda = NA_real_,
+        eta = NA_real_,
+        theta = NA_real_, 
+        optim_fail = 1, 
+        inf_var = inf.var
+      )
 
     }
 
