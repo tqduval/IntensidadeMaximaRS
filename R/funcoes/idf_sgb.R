@@ -93,11 +93,22 @@ idf.sgb <- function(par, return.period, duration){
 }
 
 #' @title Função objetivo: calcular RMSE
-idf.fo <- function(par, q.base.vec, return.period, duration){
+idf.fo <- function(par, q.base.vec, return.period, duration, which.metric = c("rmse", "log-rmse")){
   tryCatch({
     q.est.vec <- as.vector(sapply(return.period, function(rp) idf.sgb(par, rp, duration)))
-    res <- q.base.vec - q.est.vec
-    return((sum(res^2)/(length(res) - 1))^0.5)
+    
+    fo <- switch(
+      which.metric,
+      "rmse" = {
+        res <- q.base.vec - q.est.vec
+        (sum(res^2)/(length(res) - 1))^0.5
+      },
+      "log-rmse" = {
+        res <- log(q.base.vec) - log(q.est.vec)
+        sum(mean(res^2))^0.5
+
+      }
+    )
   }, error = function(e){
     conditionMessage(e)
     NULL
@@ -123,10 +134,11 @@ fsgb.idf <- function(par.matrix, duration.vec, return.period){
       method = "L-BFGS-B",
       control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
       lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
-      upper = c(Inf, Inf, Inf, Inf),
+      upper = c(Inf, Inf, 0.9999, min(duration.vec)),
       q.base.vec = as.vector(q.matrix),
       return.period = return.period,
-      duration = duration.vec
+      duration = duration.vec,
+      which.metric = "dpma"
     ),
     error = function(e){
       warning(sprintf("Erro durante otimização dos parâmetros iniciais:\n%s", conditionMessage(e)))
@@ -148,6 +160,7 @@ par.matrix <- par.ls[[gg]]
 duration.vec <- NULL
 return.period <- 2^seq_len(8)
 
+par.gg <- start
 par.gg <- fit.obj$par |> print()
 
 idf.gg <- freq.obs.all.df |> 
@@ -156,9 +169,14 @@ idf.gg <- freq.obs.all.df |>
     plot_pos == "weibull"
   ) |> 
   select(gauge_code, wateryear, d, imax, p, return_period) |> 
+  left_join(
+    as_tibble(par.matrix) |> mutate(gauge_code = gg, d = seq_len(24), .before = 1),
+    by = c("gauge_code", "d")
+  ) |> 
   rowwise() |> 
   mutate(
-    q = idf.sgb(par = par.gg, return.period = return_period, duration = d)
+    q_idf = idf.sgb(par = par.gg, return.period = return_period, duration = d),
+    q_gev = qgev(param = c(xi, alpha, kappa), p.nexceed = 1 - p)
   ) |> print()
 
 idf.gg |> 
@@ -171,15 +189,16 @@ idf.gg |>
 
 idf.gg |> 
   ggplot(aes(x = d, group = factor(return_period))) +
-  geom_line(aes(y = imax, color = factor(return_period))) +
+  # geom_line(aes(y = imax, color = factor(return_period))) +
   # geom_line(aes(y = imax, color = "Intensidades observadas")) +
-  # geom_line(aes(y = q, color = "IDF-SGB")) +
+  geom_line(aes(y = q_gev, color = "GEV")) +
+  geom_line(aes(y = q_idf, color = "IDF-SGB")) +
   annotate(
     geom = "text", x = Inf, y = Inf, 
     label = sprintf("k: %0.0f\nλ: %0.3f\nη: %0.3f\nθ: %0.3f", par.gg[1], par.gg[2], par.gg[3], par.gg[4]),
     family = font, hjust = 1.1, vjust = 1.1
   ) +
-  # scale_color_manual(name = NULL, values = c("Intensidades observadas" = "grey70", "IDF-SGB" = "black")) +
+  scale_color_manual(name = NULL, values = c("Intensidades observadas" = "grey70", "IDF-SGB" = "black")) +
   scale_x_log10() +
   scale_y_log10()
 
@@ -211,10 +230,11 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
         method = "L-BFGS-B",
         control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
         lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
-        upper = c(Inf, Inf, Inf, Inf),
+        upper = c(Inf, Inf, Inf, min(duration.vec)),
         q.base.vec = as.vector(q.matrix),
         return.period = return.period,
-        duration = duration.vec
+        duration = duration.vec,
+        which.metric = "rmse"
       ),
       error = function(e){
         warning(sprintf("Posto %s: erro durante otimização dos parâmetros iniciais :\n%s", gg, conditionMessage(e)))
