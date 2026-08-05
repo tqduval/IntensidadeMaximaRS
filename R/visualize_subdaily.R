@@ -1774,8 +1774,10 @@ rmse.boxplot <- performance.summary.df |>
   ) +
   labs(x = NULL, y = "rRMSE") +
   theme(
-    legend.position = c(0.01, 0.93),
-    legend.justification = c(0, 1),
+    # legend.position = c(0.01, 0.93),
+    legend.position = c(0.99, 0.93),
+    legend.justification = c(1, 1),
+    # legend.justification = c(0, 1),
     legend.spacing.y = unit(-5, "pt"),
     legend.key.spacing.y = unit(1, "pt"),
     legend.title.position = "top",
@@ -1862,80 +1864,66 @@ bias.boxplot <- performance.summary.df |>
 
 ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", bias.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
+par.labels <- performance.sgb.df |> 
+  slice_head(by = gauge_code) |> 
+  select(gauge_code, k, lambda, eta, theta) |>
+  mutate(gauge_label = gauge.labels[gauge_code]) |> print()
 
 # Visualização da IDF de todas as estações
-
-# Visualização de uma estação
-gg <- "A801"
-performance.df |> 
-  filter(
-    # model == "GEV",
-    model == "IDF-SGB",
-    # prior == which.prior[2],
-    plot_pos == "weibull",
-    gauge_code == gg
+idf.sgb.plot <- performance.sgb.df |> 
+  filter(plot_pos == "weibull") |> 
+  left_join(
+    bind_rows(
+      lapply(seq_along(par.lmom.ls), function(i){
+        gg <- names(par.lmom.ls[i])
+        m <- par.lmom.ls[[i]]
+        as.data.frame(m) |> mutate(gauge_code = gg, d = seq_len(24), .before = 1)
+      })
+    ),
+    by = c("gauge_code", "d")
   ) |> 
+  rowwise() |> 
   mutate(
-    return_period = 1/p
+    q_gev = qgev(param = c(xi, alpha, kappa), p.nexceed = 1 - p), # calcular modelo GEV (LMOM)
+    gauge_label = gauge.labels[gauge_code]
   ) |> 
-  ggplot(aes(x = d, y = q, color = factor(return_period))) +
-  geom_line() +
-  labs(subtitle = gg) +
-  scale_x_log10() +
-  scale_y_log10()
-
-# Estimar quantis por fora
-idf.par.gg <- fsgb.idf(par = par.lmom.ls[[gg]], duration.vec = duration.vec, return.period = 2^seq_len(8)) # parâmetros
-rp.gg <- freq.obs.all.df |> 
-  filter(
-    gauge_code == gg,
-    plot_pos == "weibull"
-  ) |> 
-  pull()
-# qsgb.gg <- 
-
-
-# Estimado com o ajuste da IDF
-q.est.df <- opt.matrix |> 
-  as.data.frame() |> 
-    rownames_to_column(var = "d") |> 
-    mutate(
-      d = as.numeric(d),
-      which_model = "est"
-    ) |> 
-    pivot_longer(
-      cols = -c(d, which_model),
-      names_to = "return_period",
-      names_transform = as.numeric,
-      values_to = "q"
-    )
-
-qsgb.matrix |> 
-  as.data.frame() |> 
-  rownames_to_column(var = "d") |> 
-  mutate(d = as.numeric(d)) |> 
-  pivot_longer(
-    cols = -d,
-    names_to = "return_period",
-    names_transform = as.numeric,
-    values_to = "q"
-  ) |> 
-  ggplot(aes(x = d, y = q, color = factor(return_period))) +
-  geom_line() +
-  scale_x_log10() +
-  scale_y_log10()
-
-ggplot(mapping = aes(x = d, y = q, group = return_period, color = which_model)) +
-  geom_line(data = q.base.df, linewidth = 1) +
-  geom_line(data = q.est.df, linewidth = 0.3, alpha = 0.8) +
-  labs(x = "Duração [h]", y = "Intensidade [mm/h]", subtitle = gg) +
-  scale_x_log10() +
-  scale_y_log10() +
-  scale_color_manual(name = "Modelos", values = c("base" = "grey80", "est" = "black"), labels = c("GEV por duração", "IDF convencional")) +
+  ungroup() |> 
+  ggplot(aes(x = d, group = factor(return_period))) +
+  facet_wrap(~gauge_label, ncol = 4) +
+  geom_line(aes(y = q_gev, color = "GEV (LMOM)"), linewidth = 0.3) +
+  # geom_line(aes(y = imax, color = "Intensidades observadas"), linewidth = 0.3) +
+  geom_line(aes(y = q, color = "IDF-SGB"), linewidth = 0.1) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("λ: %6.3f", k)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 1.8, size = textsize*0.55
+  ) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("k: %6.3f", lambda)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 3.3, size = textsize*0.55
+  ) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("η: %6.3f", eta)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 4.8, size = textsize*0.55
+  ) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("Θ: %6.3f", theta)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 6.3, size = textsize*0.55
+  ) +
+  scale_x_log10(name = "Durações [h]") +
+  scale_y_log10(name = "Intensidade [mm/h]") +
+  scale_color_manual(
+    name = NULL, 
+    values = c("GEV (LMOM)" = "grey80", "IDF-SGB" = "black")
+    # values = c("Intensidades observadas" = "grey80", "IDF-SGB" = "black")
+  ) +
   theme(
-    legend.position = c(0.99, 0.98),
-    legend.justification = c(1,1),
-    panel.grid.major.x = element_line(linewidth = 0.3, color = "grey80", linetype = "dashed")
-  )
+    text = element_text(size = fontsize*0.8),
+    strip.text = element_text(size = fontsize*0.6, margin = margin(b = 2)),
+    panel.border = element_rect(linewidth = 0.3, color = "black"),
+    legend.margin = margin()
+  ); idf.sgb.plot
 
-ggsave(sprintf("figuras/preliminares/subdiarios/idf_convencional_%s.png", gg), width = 12, height = 8, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_sgb_gev.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+# ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+
+

@@ -64,8 +64,8 @@ start.idf <- function(duration.vec, qgev.matrix, return.period){
   }, ds = duration.vec)
   
   ln.A <- est.by.rp["lnA",]
-  eta <- mean(est.by.rp["eta",])
-  theta <- mean(est.by.rp["theta",])
+  eta <- median(est.by.rp["eta",])
+  theta <- median(est.by.rp["theta",])
   
   ## Obter estimativa de `ln(k)` e `lambda`
   n.rp <- length(return.period)      # nro. tempos de retorno 
@@ -93,26 +93,33 @@ idf.sgb <- function(par, return.period, duration){
 }
 
 #' @title Função objetivo: calcular RMSE
-idf.fo <- function(par, q.base.vec, return.period, duration, which.metric = c("rmse", "log-rmse")){
+idf.fo <- function(par, q.base.vec, return.period, duration, metric = c("rmse", "log-rmse", "mape")){
+
+  metric <- match.arg(metric, c("rmse", "log-rmse", "mape"))
+
   tryCatch({
     q.est.vec <- as.vector(sapply(return.period, function(rp) idf.sgb(par, rp, duration)))
-    
     fo <- switch(
-      which.metric,
+      metric,
       "rmse" = {
         res <- q.base.vec - q.est.vec
         (sum(res^2)/(length(res) - 1))^0.5
       },
       "log-rmse" = {
-        res <- log(q.base.vec) - log(q.est.vec)
-        sum(mean(res^2))^0.5
-
+        offset <- 1e-6
+        res <- log(q.base.vec + offset) - log(q.est.vec + offset)
+        mean(res^2)^0.5
+      },
+      "mape" = {
+        res <- q.base.vec - q.est.vec
+        mean(abs(res)/q.base.vec)*100
       }
     )
   }, error = function(e){
     conditionMessage(e)
     NULL
   })
+
 }
 
 fsgb.idf <- function(par.matrix, duration.vec, return.period){
@@ -138,7 +145,7 @@ fsgb.idf <- function(par.matrix, duration.vec, return.period){
       q.base.vec = as.vector(q.matrix),
       return.period = return.period,
       duration = duration.vec,
-      which.metric = "dpma"
+      metric = "mape"
     ),
     error = function(e){
       warning(sprintf("Erro durante otimização dos parâmetros iniciais:\n%s", conditionMessage(e)))
@@ -154,10 +161,10 @@ fsgb.idf <- function(par.matrix, duration.vec, return.period){
 
 # REFAZER NO EXCEL, AVALIAR PQ ALGUMAS EQUAÇÕES ESTÃO TÃO CURVADAS
 
-gg <- "A802"
+gg <- "432260802A"
 par.ls <- par.lmom.ls
 par.matrix <- par.ls[[gg]]
-duration.vec <- NULL
+duration.vec <- seq_len(24)
 return.period <- 2^seq_len(8)
 
 par.gg <- start
@@ -198,7 +205,8 @@ idf.gg |>
     label = sprintf("k: %0.0f\nλ: %0.3f\nη: %0.3f\nθ: %0.3f", par.gg[1], par.gg[2], par.gg[3], par.gg[4]),
     family = font, hjust = 1.1, vjust = 1.1
   ) +
-  scale_color_manual(name = NULL, values = c("Intensidades observadas" = "grey70", "IDF-SGB" = "black")) +
+  # scale_color_manual(name = NULL, values = c("Intensidades observadas" = "grey70", "IDF-SGB" = "black")) +
+  scale_color_manual(name = NULL, values = c("GEV" = "grey70", "IDF-SGB" = "black")) +
   scale_x_log10() +
   scale_y_log10()
 
@@ -223,19 +231,37 @@ fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
     start <- start.idf(duration.vec, q.matrix, return.period) # estimar parâmetros iniciais
 
     # Otimizar parâmetros iniciais
-    fit.obj <- tryCatch(
-      optim(
+    fit.obj <- tryCatch({
+
+      fit1 <- optim(
         par = start,
         fn = idf.fo,
-        method = "L-BFGS-B",
+        # method = "L-BFGS-B",
+        method = "Nelder-Mead",
         control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
-        lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
-        upper = c(Inf, Inf, Inf, min(duration.vec)),
+        # lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
+        # upper = c(Inf, Inf, Inf, min(duration.vec)),
         q.base.vec = as.vector(q.matrix),
         return.period = return.period,
         duration = duration.vec,
-        which.metric = "rmse"
-      ),
+        metric = "rmse"
+      )
+
+      fit2 <- optim(
+        par = fit1$par,
+        fn = idf.fo,
+        # method = "L-BFGS-B",
+        method = "Nelder-Mead",
+        control = list(maxit = 1e8, factr = 1e7, pgtol = 1e-8),
+        # lower = c(0.0001, 0.0001, 0.0001, -min(duration.vec) + 0.0001),
+        # upper = c(Inf, Inf, Inf, min(duration.vec)),
+        q.base.vec = as.vector(q.matrix),
+        return.period = return.period,
+        duration = duration.vec,
+        metric = "mape"
+      )
+
+    },
       error = function(e){
         warning(sprintf("Posto %s: erro durante otimização dos parâmetros iniciais :\n%s", gg, conditionMessage(e)))
         NULL
