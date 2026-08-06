@@ -6,7 +6,7 @@ rm(list = ls()); gc()
 
 # PACOTES ----------------------------------------------------------------
 
-pacman::p_load(pacman, tidyverse, arrow, readxl, lmom, sf, ggspatial, patchwork, xtable)
+pacman::p_load(pacman, tidyverse, arrow, readxl, lmom, sf, ggspatial, patchwork, xtable, ggtext, ggrepel, geomtextpath)
 
 # Set theme
 font <- "JetBrainsMono NF"
@@ -33,6 +33,8 @@ ggplot2::set_theme(
 # Dados espaciais
 macrobh.sf <- read_sf("base/sig/sf_macro_bh_rs.gpkg", layer = "dissolvido")
 rs.sf <- read_sf("base/sig/sf_rs.gpkg")
+isoietas.pma.sf <- read_sf("base/sig/isoietas_pma_1977_2006/Isoietas_PMA_1977_2006.shp") # precipitação média anual
+# isoietas.imax.sf <- 
 daily.sf <- read_sf("base/sig/sf_daily.gpkg") |> 
   slice_tail(n = 1, by = gauge_code) |> 
   mutate(gauge_code = sub("^0", "", gauge_code)) |> 
@@ -294,6 +296,34 @@ map.boxplot.nyr.kappa <-
   plot_layout(widths = c(1, 0.8), guides = "keep"); map.boxplot.nyr.kappa
 
 ggsave("figuras/preliminares/diarios/map_boxplot_nyr.png", map.boxplot.nyr.kappa, width = 14, height = 7.5, units = "cm", dpi = 300)
+
+
+## ISOIETAS --------------------------------------------------------------
+
+isoietas.pma.rs.sf <- st_intersection(isoietas.pma.sf, rs.sf)
+isoietas.xyz <- st_coordinates(isoietas.pma.rs.sf)
+
+# Isoietas de precipitação anual média
+ggplot() +
+  geom_sf(data = rs.sf, fill = "NA", color = "black", linewidth = 0.3) +
+  # geom_sf(data = isoietas.pma.rs.sf, linewidth = 0.3) +
+  geomtextpath::geom_textsf(
+    data = isoietas.pma.rs.sf, aes(label = CONTOUR),
+    family = font, size = textsize, color = "black", linewidth = 0.3,
+    vjust = 0.5, hjust = 0.2, halo = TRUE, upright = TRUE, straight = FALSE
+  ) +
+  coord_sf(crs = st_crs(4674), expand = TRUE) +
+  annotation_scale(
+    location = "br", width_hint = 0.2, height = unit(1.5, "mm"), text_family = font, text_cex = 0.6,
+    bar_cols = c("black", "aliceblue"), line_width = 0.4
+  ) +
+  annotation_north_arrow(
+    location = "tr" , width = unit(1, "cm"), height = unit(1, "cm"), which_north = "true",
+    style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "aliceblue"))
+  ) +
+  labs(x = "Longitude", y = "Latitude")
+
+ggsave("figuras/preliminares/mapa_isoietas_pma.png", width = 12, height = 12, units = "cm", dpi = 300)
 
 
 ## MONTE CARLO -----------------------------------------------------------
