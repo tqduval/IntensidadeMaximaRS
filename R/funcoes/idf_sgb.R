@@ -384,3 +384,9 @@ buildsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
   return(list(par = par, idf = idf))
 
 }
+
+
+# AJUSTE REGRESSÃO -------------------------------------------------------
+
+rm(list = ls())
+

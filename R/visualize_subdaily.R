@@ -1788,7 +1788,7 @@ rmse.boxplot <- performance.summary.df |>
 ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
 # BIAS relativo
-lim.bias <- 6.1
+lim.bias <- 5
 outliers.bias <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
@@ -1806,7 +1806,8 @@ outliers.bias <- performance.summary.df |>
   summarise(
     min_r_bias = min(r_bias),
     max_r_bias = max(r_bias),
-    string = sprintf("[%s]", paste(id, collapse = ",")),
+    string_pos = sprintf("[%s]", paste(id[r_bias > 0], collapse = ",")),
+    string_neg = sprintf("[%s]", paste(id[r_bias < 0], collapse = ",")),
     .groups = "drop"
   ) |> print()
 
@@ -1827,7 +1828,7 @@ bias.boxplot <- performance.summary.df |>
     linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
     outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = 0.95
   ) +
-  geom_text(aes(x = d, y = lim.rmse, label = string), outliers.bias, inherit.aes = FALSE, family = font, size = textsize*0.8) +
+  geom_text(aes(x = d, y = -lim.bias, label = string_neg), outliers.bias, inherit.aes = FALSE, family = font, size = textsize*0.8) +
   coord_cartesian(ylim = c(-lim.bias, lim.bias)) +
   scale_color_manual(
     name = NULL,
@@ -1853,8 +1854,8 @@ bias.boxplot <- performance.summary.df |>
   ) +
   labs(x = NULL, y = "rRMSE") +
   theme(
-    legend.position = c(0.01, 0.93),
-    legend.justification = c(0, 1),
+    legend.position = c(0.98, 0.98),
+    legend.justification = c(1, 1),
     legend.spacing.y = unit(-5, "pt"),
     legend.key.spacing.y = unit(1, "pt"),
     legend.title.position = "top",
@@ -1862,7 +1863,7 @@ bias.boxplot <- performance.summary.df |>
     legend.title = element_text(margin = margin(b = 1), hjust = 0)
   ); bias.boxplot
 
-ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", bias.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/boxplot_bias.png", bias.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
 par.labels <- performance.sgb.df |> 
   slice_head(by = gauge_code) |> 
@@ -1927,3 +1928,51 @@ ggsave("figuras/preliminares/subdiarios/idf_sgb_gev.png", idf.sgb.plot, width = 
 # ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 
 
+# Exemplo curva IDF Porto Alegre SGB Atlas Pluviométrico
+# Esta figura vai p/ exemplificar uma curva IDF no referencial teórico
+rps <- c(2, 5, 10, 25, 50, 100)
+ds <- c(seq(5, 60, 5), seq(2, 24, 2)*60) # minutos
+k <- 812.9
+gamma <- 0.1571
+eta <- 0.7486
+theta <- 6.6
+
+idf.matrix <- sapply(rps, function(rp) k*rp^gamma/(ds + theta)^eta)
+dimnames(idf.matrix) <- list(ds, rps)
+
+idf.df <- idf.matrix |> 
+  as.data.frame() |> 
+  rownames_to_column(var = "d") |>
+  pivot_longer(
+    cols = !d,
+    names_to = "return_period",
+    names_transform = as.numeric,
+    values_to = "q"
+  ) |> 
+  mutate(
+    d = as.numeric(d),
+    rp_label = fct_reorder(sprintf("T = %g anos", return_period), return_period)
+  ) |> print()
+
+idf.col <- c("")
+
+idf.df |> 
+  ggplot(aes(x = d/60, y = q, color = rp_label)) +
+  geom_line(key_glyph = "rect") +
+  scale_x_log10(name = "Duração [h]") +
+  scale_y_log10(name = "Intensidade [mm/h]") +
+  annotate(geom = "text", label = sprintf("k: %-6.1f", k), x = Inf, y = 295, vjust = 0, hjust = 1.2, family = font, size = textsize) +
+  annotate(geom = "text", label = sprintf("γ: %-6.4f", gamma), x = Inf, y = 258, vjust = 0, hjust = 1.2, family = font, size = textsize) +
+  annotate(geom = "text", label = sprintf("η: %-6.4f", eta), x = Inf, y = 224, vjust = 0, hjust = 1.2, family = font, size = textsize) +
+  annotate(geom = "text", label = sprintf("θ: %-6.1f", theta), x = Inf, y = 198, vjust = 0, hjust = 1.2, family = font, size = textsize) +
+  scale_color_manual(
+    name = NULL, values = rev(c("black", "grey20", "grey40", "grey60", "grey70", "grey85")),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  theme(
+    legend.position = c(0.02, 0.01),
+    legend.justification = c(0,0),
+    axis.title.x = element_text(margin = margin(t = 5))
+  )
+
+ggsave("figuras/preliminares/idf_sgb_porto_alegre_atlas.png", width = 12, height = 8, units = "cm", dpi = 300)
