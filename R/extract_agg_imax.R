@@ -103,3 +103,60 @@ arrow::write_parquet(x = bind_rows(imax.ls), sink = "base/gerados/df_imax.pqt")
 
 # Ler arquivo c/ intensidades máximas
 imax.df <- arrow::read_parquet(file = "base/gerados/df_imax.pqt")
+
+quality.df <- imax.df |> 
+  mutate(responsible = info.df$responsible[match(gauge_code, info.df$gauge_code)]) |> 
+  select(gauge_code, responsible, wateryear, na_prct_yr) |> 
+  group_by(gauge_code, responsible, wateryear) |> 
+  summarise(na_prct = first(na_prct_yr)*100)
+
+thresholds <- seq(10, 40, 10)
+min.years <- seq_len(10)
+
+grid <- expand.grid(threshold = thresholds, min_years = min.years) |> # combinações 
+  mutate(n_gauges = purrr::map2_int(.x = threshold, .y = min_years, .f = ~{ # analisar qtas estações p/ cada par
+    quality.df |>
+      filter(na_prct <= .x) |> # filtrar estações c/ no máximo `threshold` falhas anuais
+      count(gauge_code) |>     # contar qtas estações
+      filter(n >= .y) |>       # filtrar estações c/ no mínimo `min_years` anos
+      nrow()                   # contar qtas estações
+  }))
+
+resp.names <- paste(unique(info.df$responsible), collapse = ", ")
+
+# Visualização
+
+# Set theme
+suppressMessages(extrafont::loadfonts())
+font <- "JetBrainsMono NF"
+# font <- "Courier New"
+fontsize <- 8
+textsize <- (fontsize - 2) / .pt
+ggplot2::set_theme(
+  theme_minimal() +
+    theme(
+      legend.position = "bottom",
+      legend.box.margin = margin(-5.5, 2, 2, 2),
+      legend.key.size = unit(fontsize, "pt"),
+      text = element_text(color = "black", size = fontsize, family = font),
+      axis.text = element_text(color = "black"),
+      strip.text = element_text(hjust = 0, size = fontsize - 2, margin = margin(2, 2, 2, 2), color = "black"),
+      panel.border = element_rect(color = "black", linewidth = 0.5),
+      panel.grid = element_blank(),
+      plot.margin = margin(0.5, 0.5, 0.5, 0.5)
+    )
+)
+
+color <- c("green4", "lightgreen", "orange", "#f10000")
+anos.estacao.plot <- grid |> 
+  mutate(threshold = factor(threshold, levels = thresholds)) |> 
+  ggplot(aes(x = min_years, y = n_gauges, fill = threshold)) +
+  facet_wrap(~threshold, nrow = 4, labeller = labeller(threshold = function(x) paste0(x, "% falhas"))) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = n_gauges), vjust = -0.3, size = textsize, family = font) +
+  scale_x_continuous(breaks = seq(min(grid$min_years), max(grid$min_years), by = 1)) +
+  scale_y_continuous(limits = c(0, max(grid$n_gauges) + 50)) +
+  scale_fill_manual(values = color) +
+  labs(x = "Número de anos por estação",y = "Número de estações"); anos.estacao.plot
+
+ggsave("figuras/preliminares/plot_anos_estacao.png", anos.estacao.plot, width = 15, height = 15, units = "cm", dpi = 300)

@@ -212,7 +212,7 @@ idf.gg |>
 
 
 #### FIM TESTE ####
-
+  
 #' @title Ajustar o modelo final de IDF
 fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
 
@@ -390,3 +390,159 @@ buildsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
 
 rm(list = ls())
 
+rp <- c(2, 5, 10, 25, 50, 100, 200)
+p.nexceed.vec <- 1 - 1/rp
+d <- seq_len(24)
+
+# Estimativas quantis GEV p/ montar matriz Y = log(qgev)
+par.lmom.ls <- split(imax.df, imax.df$gauge_code) |> 
+  lapply(function(data.gg){
+    data.gg |> 
+      select(wateryear, d, imax) |> 
+      pivot_wider(names_from = d, values_from = imax) |> 
+      column_to_rownames(var = "wateryear") |> 
+      as.matrix() |> na.omit() |> 
+      apply(2, start.gev) |> 
+      t()
+  })
+
+fit.theta <- function(theta, df){
+  df <- df |> mutate(log_d = log(d + theta))
+  fit <- lm(log_y ~ log_rp + log_d, df)
+  return(sigma(fit))
+}
+
+setup.fit.data <- function(q.matrix, duration.vec, theta){
+  as.data.frame(q.matrix) |> 
+    mutate(d = duration.vec) |>
+    pivot_longer(cols = -d, names_to = "rp", names_transform = as.numeric, values_to = "y") |>
+    mutate(log_y = log(y), log_rp = log(rp), log_d = log(d + theta))
+}
+
+gg <- "430060402A"
+data.gg <- imax.df[imax.df$gauge_code == gg,]
+par.gg <- par.lmom.ls[[gg]]
+
+Y <- t(apply(par.gg, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
+dimnames(Y) <- list(d, rp)
+
+# Ajuste inicial
+theta.start <- 0
+fit.data.start <- setup.fit.data(Y, d, theta.start) |> print()
+fit.lm <- lm(log_y ~ log_rp + log_d, data = fit.data.start)
+summary.fit <- summary(fit.lm) |> print()
+coef <- fit.lm$coefficients
+k <- exp(coef[["(Intercept)"]])
+gamma <- coef[["log_rp"]]
+eta <- -coef[["log_d"]]
+message(sprintf("start: k: %6.3f | gamma: %6.3f | eta: %6.3f | theta: %6.3f", k, gamma, eta, theta.start))
+
+# Ajuste final
+theta.opt <- optimize(f = fit.theta, interval = c(0, max(d)/3), df = fit.data.start)
+theta.opt <- theta.opt$minimum
+fit.data.opt <- setup.fit.data(Y, d, theta.opt) |> print()
+fit.lm <- lm(log_y ~ log_rp + log_d, data = fit.data.opt)
+summary.fit <- summary(fit.lm) |> print()
+coef <- fit.lm$coefficients
+k <- exp(coef[["(Intercept)"]])
+gamma <- coef[["log_rp"]]
+eta <- -coef[["log_d"]]
+message(sprintf("start: k: %6.3f | gamma: %6.3f | eta: %6.3f | theta: %6.3f", k, gamma, eta, theta.opt))
+
+est.data <-  expand.grid(d = d, rp = rp) |> 
+  select(d, rp) |> 
+  mutate(y = k*rp^gamma/(d + theta.opt)^eta) |> 
+  print()
+
+ggplot() +
+  geom_line(aes(x = d, y = y, group = rp, color = "GEV"), fit.data.opt) +
+  geom_line(aes(x = d, y = y, group = rp, color = "IDF convencional OLS"), est.data) +
+  scale_x_log10("Duração [h]") +
+  scale_y_log10("Intensidade [mm/h]") +
+  scale_color_manual(name = NULL, values = c("grey", "black")) +
+  theme(
+    legend.position = c(0.98, 0.98),
+    legend.justification = c(1,1)
+  )
+
+  #' @title Ajustar o modelo final de IDF
+  fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
+
+    fit.theta <- function(theta, df){
+      df <- df |> mutate(log_d = log(d + theta))
+      fit <- lm(log_y ~ log_rp + log_d, df)
+      return(sigma(fit))
+    }
+
+    setup.fit.data <- function(q.matrix, duration.vec, theta){
+      as.data.frame(q.matrix) |> 
+        mutate(d = duration.vec) |>
+        pivot_longer(cols = -d, names_to = "rp", names_transform = as.numeric, values_to = "y") |>
+        mutate(log_y = log(y), log_rp = log(rp), log_d = log(d + theta))
+    }
+  
+    idf.ls <- pbapply::pblapply(seq_along(par.ls), function(i){
+  
+      if(is.null(duration.vec)) duration.vec <- as.numeric(rownames(par.matrix))
+      gg <- names(par.ls[i])
+      par.matrix <- par.ls[[i]]
+      inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
+  
+      # Estimar parâmetros iniciais
+      p.nexceed.vec <- 1 - 1/return.period # probabilidade de não excedência
+      q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE)) # quantis da GEV
+      dim.names <- list(duration.vec, return.period) # nome linhas e colunas
+      dimnames(q.matrix) <- dim.names
+      
+      fit.par <- tryCatch({
+      
+        # Ajuste inicial
+        theta.start <- 0
+        fit.data.start <- setup.fit.data(q.matrix, d, theta.start) 
+        
+        # Ajuste final
+        theta.opt <- optimize(f = fit.theta, interval = c(0, max(d)/3), df = fit.data.start)
+        theta.opt <- theta.opt$minimum
+        fit.data.opt <- setup.fit.data(q.matrix, d, theta.opt)
+        fit.lm <- lm(log_y ~ log_rp + log_d, data = fit.data.opt)
+        coef <- coef(fit.lm)
+        k <- exp(coef[[1]]) # intercepto
+        gamma <- coef[[2]]  # log(rp) 
+        eta <- -coef[[3]]   # log(d + theta)
+  
+        par <- setNames(c(k, gamma, eta, theta.opt), c("k", "gamma", "eta", "theta"))
+      
+      }, error = function(e){
+        
+        warning(conditionMessage(e))
+        NULL
+
+      })
+  
+      # Extrair parâmetros finais
+      if(!is.null(fit.par)){
+        idf.par <- data.frame(
+          gauge_code = gg, 
+          t(fit.par), 
+          fit_fail = 0, 
+          inf_var = inf.var
+        )
+      } else{
+        idf.par <- data.frame(
+          gauge_code = gg, 
+          k = NA_real_,
+          gamma = NA_real_,
+          eta = NA_real_,
+          theta = NA_real_, 
+          fit_fail = 1, 
+          inf_var = inf.var
+        )
+      }
+  
+      return(par = idf.par)
+  
+    })
+  
+    return(bind_rows(idf.ls))
+  
+  }

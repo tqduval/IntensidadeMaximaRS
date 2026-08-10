@@ -6,7 +6,7 @@ rm(list = ls()); invisible(gc())
 
 pacman::p_load(
     pacman, tidyverse, 
-    geomtextpath, ggspatial,
+    geomtextpath, ggspatial, patchwork,
     stars, ncmeta, FNN, cubelyr, # esses depois do stars são pacotes exigidos
     terra
 )
@@ -73,7 +73,7 @@ nc.rs <- st_crop(nc, rs.wgs84.buffer.sf) # apenas um proxy
 # `st_crop()` pode não funcionar quando usa `read_ncdf()`, pois requer que xy sejam retilineos e
 # NetCDFs podem apresentar pequenas variações de xy ao longo do tempo. Ler como `read_stars()`
 # automaticamente "suaviza" essas diferenças
-nc.rs <- st_as_stars(nc.rs)
+nc.rs <- st_as_stars(nc.rs); gc()
 names(nc.rs) <- "pr"
 
 # RESUMIR EM TOTAIS E MÁXIMOS ANUAIS MÉDIOS ------------------------------
@@ -116,18 +116,36 @@ nc.annual.sum <- nc.rs |>
 
 invisible(gc())
 
-# Médias máximas anuais
-nc.mean.max <- st_apply(nc.annual.max, MARGIN = c("x", "y"), FUN = mean) # para todo par {x,y}, aplique a média ao longo de "time"
+# Totais mensais
+nc.monthly.sum <- nc.rs |> 
+  aggregate(by = "3 months", FUN = safe.sum)
+
+invisible(gc())
+
+# Médias
+nc.mean.max <- st_apply(nc.annual.max, MARGIN = c("x", "y", "time"), FUN = mean) # para todo par {x,y}, aplique a média ao longo de "time"
 nc.mean.sum <- st_apply(nc.annual.sum, MARGIN = c("x", "y"), FUN = mean)
-nc.summary <- c(nc.mean.max, nc.mean.sum)
-names(nc.summary) <- c("mean_annual_max", "mean_annual_sum")
+nc.summary <- c(nc.mean.max, nc.mean.sum, nc.mean.mon.sum)
+names(nc.summary) <- c("mean_annual_max", "mean_annual_sum", "mean_monthly_sum")
 
-nc.summary <- nc.summary |>
-  st_warp(crs = st_crs(rs.sf)) |> 
-  st_crop(rs.buffer.sf)
+# nc.summary <- nc.summary |>
+#   st_warp(crs = st_crs(rs.sf)) |> 
+#   st_crop(rs.buffer.sf)
 
+# Resumos anuais
 mean.max.df <- as.data.frame(nc.summary["mean_annual_max"])
 mean.sum.df <- as.data.frame(nc.summary["mean_annual_sum"])
+
+# Resumos mensais
+mon.groups <- unique(month(st_get_dimension_values(nc.monthly.sum, which = "time")))
+mon.labels <- setNames(c("JFM", "AMJ", "JAS", "OND"), mon.groups)
+mon.sum.df <- as.data.frame(nc.monthly.sum) |> 
+  mutate(
+    month = month(time),
+    period = fct_reorder(mon.labels[factor(month)], month)
+  ) |> 
+  group_by(period, x, y) |> 
+  summarise(mean = mean(pr), .groups = "drop")
 
 # Criar rasters
 max.rast <- rast(nc.mean.max)
@@ -155,26 +173,111 @@ plot(slice(nc.annual.sum, "time", 1), main = "Máximos anuais em 1961", breaks =
 plot(nc.summary["mean_annual_max"], main = "Totais médios anuais")
 plot(nc.summary["mean_annual_sum"], main = "Média máxima anual")
 
-ggplot(data = mean.max.smooth.df, aes(x = x, y = y, z = mean)) +
-  geom_contour_filled(bins = 8) +
-  geom_sf(data = rs.sf, fill = NA, linewidth = 0.4, color = "black", inherit.aes = FALSE) +
-  geom_textcontour(
-    bins = 8, family = font, size = textsize, color = "black", linewidth = 0.3,
-    vjust = 0.5, hjust = 0.2, halo = TRUE, upright = TRUE, straight = FALSE
+# Precipitação máxima diária anual
+n.bins <- 7
+pretty.breaks <- pretty(mean.max.smooth.df$mean, n = n.bins)
+q.breaks <- round(quantile(mean.max.smooth.df$mean, probs = seq(0, 1, length.out = n.bins)))
+plot.max <- ggplot(data = mean.max.smooth.df, aes(x = x, y = y, z = mean)) +
+  geom_contour_filled(
+    bins = n.bin, breaks = q.breaks
   ) +
+  geom_textcontour(
+    bins = n.bin, breaks = q.breaks, family = font, size = textsize*0.65, color = "black", linewidth = 0.3,
+    vjust = 0.5, hjust = 0.2, upright = TRUE, straight = TRUE
+  ) +
+  geom_sf(data = rs.sf, fill = NA, linewidth = 0.4, color = "black", inherit.aes = FALSE) +
   coord_sf(crs = st_crs(rs.sf)) +
-    annotation_scale(
-        location = "br", width_hint = 0.2, height = unit(1.5, "mm"), text_family = font, text_cex = 0.6,
-        bar_cols = c("black", "aliceblue"), line_width = 0.4
-    ) +
-    annotation_north_arrow(
-        location = "tr" , width = unit(1, "cm"), height = unit(1, "cm"), which_north = "true",
-        style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "aliceblue"))
-    ) +
-    scale_color_manual(
-        name = "", values = c("Pluviômetros" = "#fc0000", "Pluviógrafos" = "#1100ff"),
-        guide = guide_legend(order = 1)
-    ) +
-    labs(x = "Longitude", y = "Latitude")
+  scale_fill_brewer(
+    name = "Precipitação\nmáxima diária\nanual [mm]", palette = 1, direction = 1
+  ) +
+  annotation_scale(
+      location = "br", width_hint = 0.2, height = unit(1.5, "mm"), text_family = font, text_cex = 0.6,
+      bar_cols = c("black", "aliceblue"), line_width = 0.4
+  ) +
+  annotation_north_arrow(
+      location = "tr" , width = unit(1, "cm"), height = unit(1, "cm"), which_north = "true",
+      style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "aliceblue"))
+  ) +
+  # labs(x = "Longitude", y = "Latitude", subtitle = "(a)") +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(
+    legend.position = c(0.01, 0),
+    legend.justification = c(0, 0),
+    legend.key.spacing.y = unit(-1.4, "pt")
+  ); plot.max
 
-gc()
+ggsave("figuras/preliminares/diarios/mapa_isoietas_max.png", plot.max, height = 12, width = 12, units = "cm", dpi = 300)
+
+# Precipitação acumulada anual
+n.bins <- 7
+pretty.breaks <- pretty(mean.sum.smooth.df$mean, n = n.bins)
+q.breaks <- round(quantile(mean.sum.smooth.df$mean, probs = seq(0, 1, length.out = n.bins)))
+manual.breaks <- c(1200, 1300, 1500, 1700, 1800, 1900)
+plot.sum <- ggplot(data = mean.sum.smooth.df, aes(x = x, y = y, z = mean)) +
+  geom_contour_filled(
+    bins = n.bin, breaks = q.breaks
+  ) +
+  geom_textcontour(
+    bins = n.bin, breaks = q.breaks, family = font, size = textsize*0.65, color = "black", linewidth = 0.3,
+    vjust = 0.5, hjust = 0.2, upright = TRUE, straight = TRUE
+  ) +
+  geom_sf(data = rs.sf, fill = NA, linewidth = 0.4, color = "black", inherit.aes = FALSE) +
+  coord_sf(crs = st_crs(rs.sf)) +
+  scale_fill_brewer(
+    name = "Precipitação\nacumulada\nanual [mm]", palette = 1, direction = 1
+  ) +
+  annotation_scale(
+      location = "br", width_hint = 0.2, height = unit(1.5, "mm"), text_family = font, text_cex = 0.6,
+      bar_cols = c("black", "aliceblue"), line_width = 0.4
+  ) +
+  annotation_north_arrow(
+      location = "tr" , width = unit(1, "cm"), height = unit(1, "cm"), which_north = "true",
+      style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "aliceblue"))
+  ) +
+  # labs(x = "Longitude", y = "Latitude", subtitle = "(b)") +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(
+    legend.position = c(0.01, 0),
+    legend.justification = c(0, 0),
+    legend.key.spacing.y = unit(-1.4, "pt")
+  ); plot.sum
+
+ggsave("figuras/preliminares/diarios/mapa_isoietas_sum.png", plot.sum, height = 12, width = 12, units = "cm", dpi = 300)
+
+plot.isoietas <-  wrap_plots(plot.max) + wrap_plots(plot.sum) + plot_layout(ncol = 1, guides = "keep"); plot.isoietas
+
+# Precipitação total mensal
+n.bins <- 7
+q.breaks <- round(quantile(mon.sum.df$mean, probs = seq(0, 1, length.out = n.bins), na.rm = TRUE), 0)
+manual.breaks <- c(240, 340, 370, 400, 430, 450, 570)
+plot.mon.sum <- ggplot(mon.sum.df, aes(x, y, z = mean)) +
+  facet_wrap(~period, ncol = 2) +
+  geom_contour_filled(
+    bins = n.bin, breaks = q.breaks
+  ) +
+  geom_textcontour(
+    bins = n.bin, breaks = q.breaks, family = font, size = textsize*0.65, color = "black", linewidth = 0.3,
+    vjust = 0.5, hjust = 0.2, upright = TRUE, straight = TRUE
+  ) +
+  geom_sf(data = rs.sf, fill = NA, linewidth = 0.4, color = "black", inherit.aes = FALSE) +
+  coord_sf(crs = st_crs(rs.sf)) +
+  scale_fill_brewer(
+    name = "Precipitação\nmensal [mm]", palette = 1, direction = 1
+  ) +
+  annotation_scale(
+      location = "br", width_hint = 0.2, height = unit(1.5, "mm"), text_family = font, text_cex = 0.6,
+      bar_cols = c("black", "aliceblue"), line_width = 0.4
+  ) +
+  annotation_north_arrow(
+      location = "tr" , width = unit(1, "cm"), height = unit(1, "cm"), which_north = "true",
+      style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "aliceblue"))
+  ) +
+  # labs(x = "Longitude", y = "Latitude", subtitle = "(b)") +
+  labs(x = "Longitude", y = "Latitude") +
+  theme(
+    legend.position = c(0.01, 0),
+    legend.justification = c(0, 0),
+    legend.key.spacing.y = unit(-1.4, "pt")
+  ); plot.mon.sum
+
+ggsave("figuras/preliminares/diarios/mapa_isoietas_meses_sum.png", plot.mon.sum, height = 15.5, width = 15.5, units = "cm", dpi = 300)

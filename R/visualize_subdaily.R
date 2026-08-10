@@ -1431,12 +1431,12 @@ freq.obs.sgb <- freq.obs.all.df |>
 performance.sgb.df <- freq.obs.sgb |> 
   mutate(
     q = purrr::pmap_dbl(
-      .l = list(k, lambda, eta, theta, return_period, d),
-      .f = function(k, lambda, eta, theta, rp, ds){
-        if(any(is.na(c(k, lambda, eta, theta)))){
+      .l = list(k, gamma, eta, theta, return_period, d),
+      .f = function(k, gamma, eta, theta, rp, ds){
+        if(any(is.na(c(k, gamma, eta, theta)))){
           return(NA_real_)
         } else{
-          idf.sgb(par = c(k, lambda, eta, theta), return.period = rp, duration = ds)
+          idf.sgb(par = c(k, gamma, eta, theta), return.period = rp, duration = ds)
         }
       }
     ),
@@ -1734,6 +1734,7 @@ outliers.rmse <- performance.summary.df |>
 rmse.boxplot <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
+    model != "GEV",
     prior %in% c(which.prior[c(1,2)], NA), # NA p/ pegar IDF-SGB
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
@@ -1785,7 +1786,7 @@ rmse.boxplot <- performance.summary.df |>
     legend.title = element_text(margin = margin(b = 1), hjust = 0)
   ); rmse.boxplot
 
-ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/boxplot_rmse_ols.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
 # BIAS relativo
 lim.bias <- 5
@@ -1867,7 +1868,7 @@ ggsave("figuras/preliminares/subdiarios/boxplot_bias.png", bias.boxplot, width =
 
 par.labels <- performance.sgb.df |> 
   slice_head(by = gauge_code) |> 
-  select(gauge_code, k, lambda, eta, theta) |>
+  select(gauge_code, k, gamma, eta, theta) |>
   mutate(gauge_label = gauge.labels[gauge_code]) |> print()
 
 # Visualização da IDF de todas as estações
@@ -1899,7 +1900,7 @@ idf.sgb.plot <- performance.sgb.df |>
     family = font, hjust = 1.1, vjust = 1.8, size = textsize*0.55
   ) +
   geom_text(
-    aes(x = Inf, y = Inf, label = sprintf("k: %6.3f", lambda)), par.labels, inherit.aes = FALSE,
+    aes(x = Inf, y = Inf, label = sprintf("k: %6.3f", gamma)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 3.3, size = textsize*0.55
   ) +
   geom_text(
@@ -1924,9 +1925,56 @@ idf.sgb.plot <- performance.sgb.df |>
     legend.margin = margin()
   ); idf.sgb.plot
 
-ggsave("figuras/preliminares/subdiarios/idf_sgb_gev.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_sgb_gev_ols.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 # ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 
+
+# Comparar IDF-SGB c/ estimativas da d-GEV e intensidades observadas
+performance.df |> 
+  filter(
+    plot_pos == "weibull",
+    model != "GEV",
+    prior %in% c(which.prior[c(1,2)], NA),
+    gauge_code == "A802"
+  ) |> 
+  mutate(
+    prior = gsub(" .*", "", prior.names[prior]),
+    gauge_label = gauge.labels[gauge_code],
+    prior_label = factor(
+      paste0(model, "_", prior), 
+      levels = c("IDF-SGB_NA", "GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE")
+    )
+  ) |>
+  slice_max(return_period, n = 3, by = c(gauge_code, d, prior_label)) |> 
+  arrange(gauge_label, d, return_period, prior_label) |> 
+  ggplot(aes(x = d, group = factor(return_period))) +
+  facet_wrap(~gauge_label, ncol = 4) +
+  geom_line(aes(y = imax, color = "Observado"), linewidth = 0.3) +
+  geom_line(
+    aes(y = q, color = "IDF convencional"), ~filter(., prior_label == "IDF-SGB_NA"), 
+    linewidth = 0.3, alpha = 0.7, linetype = "dashed"
+  ) +
+  geom_line(
+    aes(y = q, color = "d-GEV (MLE)"), ~filter(., prior_label == "d-GEV_MLE"), 
+    linewidth = 0.3, alpha = 0.7
+  ) +
+  # geom_line(aes(y = q, color = "d-GEV (RGMLE)"), ~filter(., prior_label == "d-GEV_RGMLE"), linewidth = 0.2) +
+  scale_color_manual(
+    name = NULL, 
+    values = c("Observado" = "grey80", "IDF convencional" = "#ff0000", "d-GEV (MLE)" = "#648FFF")
+  ) +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme(
+    text = element_text(size = fontsize*0.8),
+    strip.text = element_text(size = fontsize*0.6, margin = margin(b = 2)),
+    panel.border = element_rect(linewidth = 0.3, color = "black"),
+    legend.margin = margin()
+  )
+  
+
+ggsave("figuras/preliminares/subdiarios/idf_selecionadas.png", width = 15, height = 10, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_todo_mundo.png", width = 15.5, height = 23, units = "cm", dpi = 300)
 
 # Exemplo curva IDF Porto Alegre SGB Atlas Pluviométrico
 # Esta figura vai p/ exemplificar uma curva IDF no referencial teórico
