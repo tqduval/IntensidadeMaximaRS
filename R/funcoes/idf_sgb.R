@@ -88,8 +88,8 @@ start.idf <- function(duration.vec, qgev.matrix, return.period){
 
 #' @title Calcular intensidades
 idf.sgb <- function(par, return.period, duration){
-  k <- par[[1]]; lambda <- par[[2]]; eta <- par[[3]]; theta <- par[[4]]
-  k*return.period^lambda/(duration + theta)^eta
+  k <- par[[1]]; gamma <- par[[2]]; eta <- par[[3]]; theta <- par[[4]]
+  k*return.period^gamma/(duration + theta)^eta
 }
 
 #' @title Função objetivo: calcular RMSE
@@ -466,83 +466,259 @@ ggplot() +
   )
 
   #' @title Ajustar o modelo final de IDF
-  fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
+fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
 
-    fit.theta <- function(theta, df){
-      df <- df |> mutate(log_d = log(d + theta))
-      fit <- lm(log_y ~ log_rp + log_d, df)
-      return(sigma(fit))
-    }
-
-    setup.fit.data <- function(q.matrix, duration.vec, theta){
-      as.data.frame(q.matrix) |> 
-        mutate(d = duration.vec) |>
-        pivot_longer(cols = -d, names_to = "rp", names_transform = as.numeric, values_to = "y") |>
-        mutate(log_y = log(y), log_rp = log(rp), log_d = log(d + theta))
-    }
-  
-    idf.ls <- pbapply::pblapply(seq_along(par.ls), function(i){
-  
-      if(is.null(duration.vec)) duration.vec <- as.numeric(rownames(par.matrix))
-      gg <- names(par.ls[i])
-      par.matrix <- par.ls[[i]]
-      inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
-  
-      # Estimar parâmetros iniciais
-      p.nexceed.vec <- 1 - 1/return.period # probabilidade de não excedência
-      q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE)) # quantis da GEV
-      dim.names <- list(duration.vec, return.period) # nome linhas e colunas
-      dimnames(q.matrix) <- dim.names
-      
-      fit.par <- tryCatch({
-      
-        # Ajuste inicial
-        theta.start <- 0
-        fit.data.start <- setup.fit.data(q.matrix, d, theta.start) 
-        
-        # Ajuste final
-        theta.opt <- optimize(f = fit.theta, interval = c(0, max(d)/3), df = fit.data.start)
-        theta.opt <- theta.opt$minimum
-        fit.data.opt <- setup.fit.data(q.matrix, d, theta.opt)
-        fit.lm <- lm(log_y ~ log_rp + log_d, data = fit.data.opt)
-        coef <- coef(fit.lm)
-        k <- exp(coef[[1]]) # intercepto
-        gamma <- coef[[2]]  # log(rp) 
-        eta <- -coef[[3]]   # log(d + theta)
-  
-        par <- setNames(c(k, gamma, eta, theta.opt), c("k", "gamma", "eta", "theta"))
-      
-      }, error = function(e){
-        
-        warning(conditionMessage(e))
-        NULL
-
-      })
-  
-      # Extrair parâmetros finais
-      if(!is.null(fit.par)){
-        idf.par <- data.frame(
-          gauge_code = gg, 
-          t(fit.par), 
-          fit_fail = 0, 
-          inf_var = inf.var
-        )
-      } else{
-        idf.par <- data.frame(
-          gauge_code = gg, 
-          k = NA_real_,
-          gamma = NA_real_,
-          eta = NA_real_,
-          theta = NA_real_, 
-          fit_fail = 1, 
-          inf_var = inf.var
-        )
-      }
-  
-      return(par = idf.par)
-  
-    })
-  
-    return(bind_rows(idf.ls))
-  
+  fit.theta <- function(theta, df){
+    df <- df |> mutate(log_d = log(d + theta))
+    fit <- lm(log_y ~ log_rp + log_d, df)
+    return(sigma(fit))
   }
+
+  setup.fit.data <- function(q.matrix, duration.vec, theta){
+    as.data.frame(q.matrix) |> 
+      mutate(d = duration.vec) |>
+      pivot_longer(cols = -d, names_to = "rp", names_transform = as.numeric, values_to = "y") |>
+      mutate(log_y = log(y), log_rp = log(rp), log_d = log(d + theta))
+  }
+
+  idf.ls <- pbapply::pblapply(seq_along(par.ls), function(i){
+
+    if(is.null(duration.vec)) duration.vec <- as.numeric(rownames(par.matrix))
+    gg <- names(par.ls[i])
+    par.matrix <- par.ls[[i]]
+    inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
+
+    # Estimar parâmetros iniciais
+    p.nexceed.vec <- 1 - 1/return.period # probabilidade de não excedência
+    q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE)) # quantis da GEV
+    dim.names <- list(duration.vec, return.period) # nome linhas e colunas
+    dimnames(q.matrix) <- dim.names
+    
+    fit.par <- tryCatch({
+    
+      # Ajuste inicial
+      theta.start <- 0
+      fit.data.start <- setup.fit.data(q.matrix, d, theta.start) 
+      
+      # Ajuste final
+      theta.opt <- optimize(f = fit.theta, interval = c(0, max(d)/3), df = fit.data.start)
+      theta.opt <- theta.opt$minimum
+      fit.data.opt <- setup.fit.data(q.matrix, d, theta.opt)
+      fit.lm <- lm(log_y ~ log_rp + log_d, data = fit.data.opt)
+      coef <- coef(fit.lm)
+      k <- exp(coef[[1]]) # intercepto
+      gamma <- coef[[2]]  # log(rp) 
+      eta <- -coef[[3]]   # log(d + theta)
+
+      par <- setNames(c(k, gamma, eta, theta.opt), c("k", "gamma", "eta", "theta"))
+    
+    }, error = function(e){
+      
+      warning(conditionMessage(e))
+      NULL
+
+    })
+
+    # Extrair parâmetros finais
+    if(!is.null(fit.par)){
+      idf.par <- data.frame(
+        gauge_code = gg, 
+        t(fit.par), 
+        fit_fail = 0, 
+        inf_var = inf.var
+      )
+    } else{
+      idf.par <- data.frame(
+        gauge_code = gg, 
+        k = NA_real_,
+        gamma = NA_real_,
+        eta = NA_real_,
+        theta = NA_real_, 
+        fit_fail = 1, 
+        inf_var = inf.var
+      )
+    }
+
+    return(par = idf.par)
+
+  })
+
+  return(bind_rows(idf.ls))
+
+}
+
+
+
+# AJUSTE OTIMIZAÇÃO ------------------------------------------------------
+
+pacman::p_load(sceua, SoilHyP)
+
+rp <- c(2, 5, 10, 25, 50, 100, 200)
+p.nexceed.vec <- 1 - 1/rp
+d <- seq_len(24)
+
+# Estimativas quantis GEV p/ montar matriz Y = log(qgev)
+par.lmom.ls <- split(imax.df, imax.df$gauge_code) |> 
+  lapply(function(data.gg){
+    data.gg |> 
+      select(wateryear, d, imax) |> 
+      pivot_wider(names_from = d, values_from = imax) |> 
+      column_to_rownames(var = "wateryear") |> 
+      as.matrix() |> na.omit() |> 
+      apply(2, start.gev) |> 
+      t()
+  })
+
+gg <- "A802"
+data.gg <- imax.df[imax.df$gauge_code == gg,]
+par.gg <- par.lmom.ls[[gg]]
+
+Y <- t(apply(par.gg, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
+dimnames(Y) <- list(d, rp)
+
+fit.data <- as.data.frame(Y) |> 
+  mutate(d = d, .before = 1) |> 
+  pivot_longer(
+    cols = -d,
+    names_to = "rp", 
+    names_transform = as.numeric,
+    values_to = "q_gev"
+  )
+
+d.fit <- fit.data$d
+rp.fit <- fit.data$rp
+q.gev <- fit.data$q_gev
+i.obs <- q.gev
+
+par <- c(24, 0.1, 0.6, 0)
+
+idf.fo <- function(par, d.fit, rp.fit, i.obs){
+  i.est <- idf.sgb(par, rp.fit, d.fit)
+  mean.obs <- mean(i.obs, na.rm = TRUE)
+  nse <- -(1 - sum((i.obs - i.est)^2)/sum((i.obs - mean.obs)^2))
+}
+
+lower <- c(1e-5, 1e-5, 1e-5, 0)
+# upper <- c(1e6, 1, 10, max(d)/3)
+upper <- c(1e6, 1, 10, max(d))
+
+sceua::sceua(
+  fn = idf.fo,
+  initial = par, # opcional
+  d.fit = d.fit, rp.fit = rp.fit, i.obs = q.gev,
+  lower = lower, upper = upper,
+  max_evaluations = 1e6,
+  pcento = 1e-8,
+  complexes = 5
+)
+
+fit.obj <- SoilHyP::SCEoptim(
+  FUN = idf.fo,
+  par = par,
+  lower = lower,
+  upper = upper,
+  d.fit = d.fit, rp.fit = rp.fit, i.obs = q.gev,
+  control = list(reltol = 1e-8, maxit = 1e6, ncomplex = 5)
+)
+
+par.opt <- fit.obj$par
+
+est.data <-  expand.grid(d = d, rp = rp) |> 
+  select(d, rp) |> 
+  mutate(q_idf = idf.sgb(par.opt, rp, d)) |> 
+  print()
+
+ggplot() +
+  geom_line(aes(x = d, y = q_gev, group = rp, color = "GEV"), fit.data) +
+  geom_line(aes(x = d, y = q_idf, group = rp, color = "IDF (SCE-NSE)"), est.data) +
+  scale_x_log10("Duração [h]") +
+  scale_y_log10("Intensidade [mm/h]") +
+  scale_color_manual(name = NULL, values = c("grey", "black")) +
+  theme(
+    legend.position = c(0.98, 0.98),
+    legend.justification = c(1,1)
+  )
+
+fitsgb.idf <- function(par.ls, duration.vec = NULL, return.period){
+
+  idf.fo <- function(par, d.fit, rp.fit, i.obs){
+    i.est <- idf.sgb(par, rp.fit, d.fit)
+    mean.obs <- mean(i.obs, na.rm = TRUE)
+    nse <- -(1 - sum((i.obs - i.est)^2)/sum((i.obs - mean.obs)^2))
+  }
+
+  idf.ls <- pbapply::pblapply(seq_along(par.ls), function(i){
+
+    if(is.null(duration.vec)) duration.vec <- as.numeric(rownames(par.matrix))
+    gg <- names(par.ls[i])
+    par.matrix <- par.ls[[i]]
+    inf.var <- any(abs(par.matrix[,"kappa"]) > 0.5)
+
+    # Estimar parâmetros iniciais
+    p.nexceed.vec <- 1 - 1/return.period # probabilidade de não excedência
+    q.matrix <- t(apply(par.matrix, 1, qgev, p.nexceed = p.nexceed.vec, simplify = TRUE))
+    dimnames(q.matrix) <- list(duration.vec, return.period)
+    
+    fit.data <- as.data.frame(q.matrix) |> 
+      mutate(d = duration.vec, .before = 1) |> 
+      pivot_longer(
+        cols = -d,
+        names_to = "rp", 
+        names_transform = as.numeric,
+        values_to = "q_gev"
+      )
+    
+    d.fit <- fit.data$d
+    rp.fit <- fit.data$rp
+    q.gev <- fit.data$q_gev
+    i.obs <- q.gev
+    
+    par <- c(24, 0.1, 0.6, 0)
+    
+    fit.par <- tryCatch({
+    
+      fit.obj <- SoilHyP::SCEoptim(
+        FUN = idf.fo,
+        par = par,
+        lower = lower,
+        upper = upper,
+        d.fit = d.fit, rp.fit = rp.fit, i.obs = q.gev,
+        control = list(reltol = 1e-8)
+      )
+
+      par <- setNames(fit.obj$par, c("k", "gamma", "eta", "theta"))
+    
+    }, error = function(e){
+      
+      warning(conditionMessage(e))
+      NULL
+
+    })
+
+    # Extrair parâmetros finais
+    if(!is.null(fit.par)){
+      idf.par <- data.frame(
+        gauge_code = gg, 
+        t(fit.par), 
+        fit_fail = 0, 
+        inf_var = inf.var
+      )
+    } else{
+      idf.par <- data.frame(
+        gauge_code = gg, 
+        k = NA_real_,
+        gamma = NA_real_,
+        eta = NA_real_,
+        theta = NA_real_, 
+        fit_fail = 1, 
+        inf_var = inf.var
+      )
+    }
+
+    return(par = idf.par)
+
+  })
+
+  return(bind_rows(idf.ls))
+
+}

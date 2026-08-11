@@ -1706,8 +1706,9 @@ ggsave("figuras/preliminares/subdiarios/boxplot_metricas.png", performance.boxpl
 models <- c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE", "IDF-SGB_NA")
 
 # Quantas observações acima de um limite
-lim.rmse <- 1.7
-outliers.rmse <- performance.summary.df |> 
+# lim.rmse <- 1.7
+lim.rmse <- 1.8
+outliers.rmse <- performance.summary.df |> # se não for mostrar a GEV, não precisa mostrar esses outliers
   filter(
     plot_pos == "weibull",
     r_rmse > lim.rmse,
@@ -1786,7 +1787,9 @@ rmse.boxplot <- performance.summary.df |>
     legend.title = element_text(margin = margin(b = 1), hjust = 0)
   ); rmse.boxplot
 
-ggsave("figuras/preliminares/subdiarios/boxplot_rmse_ols.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/boxplot_rmse_sce.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+# ggsave("figuras/preliminares/subdiarios/boxplot_rmse_ols.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+# ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
 # BIAS relativo
 lim.bias <- 5
@@ -1925,7 +1928,8 @@ idf.sgb.plot <- performance.sgb.df |>
     legend.margin = margin()
   ); idf.sgb.plot
 
-ggsave("figuras/preliminares/subdiarios/idf_sgb_gev_ols.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_sgb_gev_sce.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+# ggsave("figuras/preliminares/subdiarios/idf_sgb_gev_ols.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 # ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 
 
