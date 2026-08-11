@@ -1046,9 +1046,15 @@ ggplot(proflik.q, aes(x = q, y = loglik)) +
 
 ggsave("figuras/preliminares/subdiarios/perfil_q1_100_proflik.png", width = 12, height = 6, units = "cm", dpi = 300)
 
+
+
+
 # IDF --------------------------------------------------------------------
 
+
+
 ## CURVAS DE FREQUÊNCIA --------------------------------------------------
+
 
 # Posições de plotagem
 freq.obs.df <- imax.df |> 
@@ -1204,7 +1210,9 @@ walk(seq_along(durations), function(i){
 })
 
 
+
 ## CURVA `Y` -------------------------------------------------------------
+
 
 # Derivar 'growth curves'
 par.wide.df <- par.dgev.df |> 
@@ -1358,10 +1366,13 @@ ggplot() +
 ggsave(sprintf("figuras/preliminares/growth_curve_pts_%s.png", gg), height = 8, width = 12, units = "cm", dpi = 300)
 
 
+
 ## IDF -------------------------------------------------------------------
 
 
+
 ## MÉTRICAS DE DESEMPENHO ------------------------------------------------
+
 
 # Frequências observadas para cada estação estão em `freq.obs.df`
 # Aqui estamos recalculando as frequências, aproveitando o índice já calculado,
@@ -1389,9 +1400,6 @@ freq.obs.all.df <- imax.df |>
 
 # Organizar os dados de `par.gev.df` e `par.dgev.df`
 # Combinar e simplificar a estrutura dos dois
-names(par.gev.df)
-names(par.dgev.df)
-
 par.df <- bind_rows(
   par.gev.df |> mutate(model = "GEV"),
   par.dgev.df |> mutate(model = "d-GEV")
@@ -1400,39 +1408,26 @@ par.df <- bind_rows(
   group_by(gauge_code, model, d, prior) |> 
   reframe(par = list(setNames(par, parname))) # listar parâmetros
 
-# Preparar estimativas com L-momentos
-par.lmom.ls <- split(imax.df, imax.df$gauge_code) |> 
-  lapply(function(data.gg){
-    data.gg |> 
-      select(wateryear, d, imax) |> 
-      pivot_wider(names_from = d, values_from = imax) |> 
-      column_to_rownames(var = "wateryear") |> 
-      as.matrix() |> na.omit() |> 
-      apply(2, start.gev) |> 
-      t()
-  })
-
 # Falta ajustar a IDF propriamente dita do modelo sem invariância de escala
 # os quantis estimados são só as curvas, a equação em si ainda precisa ser calculada.
 duration.vec <- unique(imax.df$d)
 
-sgb.df <- fitsgb.idf(
-  par.ls = par.lmom.ls,
-  duration.vec = duration.vec, # usa os que já estão nos dados
-  return.period = c(1.05, 2, 5, 10, 20, 30, 50, 70, 90, 100, 200)
-) |> print()
+# Ajustar IDF-SGB c/ código Wilson
+# O script retorna o data.frame `idf.sgb.sf`
+source("R/fit_sgb_idf.R")
+idf.sgb.df <- idf.sgb.df |> select(gauge_code, k, gamma, b, c, dpma)
 
 # Estimativas de intensidade p/ frequências observadas
 freq.obs.sgb <- freq.obs.all.df |> 
-  left_join(sgb.df, by = "gauge_code") |> 
-  select(!c(rain_yr, gauge_label, n)) |> 
-  print()
+  left_join(idf.sgb.df, by = "gauge_code") |> 
+  select(!c(gauge_label, n, rain_yr))
 
 performance.sgb.df <- freq.obs.sgb |> 
   mutate(
+    d_min = d*60, # IDF-SGB usa duração em minutos
     q = purrr::pmap_dbl(
-      .l = list(k, gamma, eta, theta, return_period, d),
-      .f = function(k, gamma, eta, theta, rp, ds){
+      .l = list(k, gamma, b, c, return_period, d_min),
+      .f = function(k, gamma, theta, eta, rp, ds){
         if(any(is.na(c(k, gamma, eta, theta)))){
           return(NA_real_)
         } else{
@@ -1489,7 +1484,10 @@ performance.summary.df <- performance.df |>
     r_rmse = sqrt(n*sum(residual/sum_imax)^2),
     r_bias = n*sum(residual/sum_imax),
     .groups = "drop"
-  ) |> print()
+  ) |> 
+  mutate(
+    model_label = paste0(model, "_", gsub(" .*", "", prior.names[prior]))
+  )
 
 # Gráfico de barras das métricas p/ todas as durações
 # ordenado pelo valor da métrica de desempenho
@@ -1620,16 +1618,18 @@ ggsave("figuras/preliminares/subdiarios/metricas_rrmse_weibull.png", width = 15.
 
 
 # Boxplot
-models <- c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE", "IDF-SGB_NA")
+models <- unique(performance.summary.df$model_label)
+sgb.col <- "grey50"
+
+# Comparar modelos com e sem distribuição a priori
 
 # Quantas observações acima de um limite
 lim.rmse <- 0.7
-
 outliers.rmse <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
-    r_rmse > lim.rmse,
-    prior %in% which.prior[c(1,2)],
+    r_rmse > lim.rmse,                   # selecionar 
+    model_label %in% models[c(1, 2, 3, 4)], # escolher modelos
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   mutate(
@@ -1650,16 +1650,15 @@ outliers.rmse <- performance.summary.df |>
 performance.boxplot <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
-    prior %in% which.prior[c(1,2)],
+    model_label %in% models[c(1, 2, 5, 6)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   mutate(
     d = fct_reorder(paste(d, "h"), d),
-    prior = gsub(" .*", "", prior.names[prior]),
-    prior_label = factor(paste0(model, "_", prior), levels = c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE"))
+    model_label = factor(model_label, models)
   ) |> 
-  select(gauge_code, d, model, prior_label, plot_pos, r_rmse, r_bias) |> 
-  ggplot(aes(x = d, y = r_rmse, fill = prior_label, alpha = prior_label)) +
+  select(gauge_code, d, model_label, plot_pos, r_rmse, r_bias) |> 
+  ggplot(aes(x = d, y = r_rmse, fill = model_label, alpha = model_label)) +
   geom_boxplot(
     linewidth = 0.3, median.linewidth = 0.3, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.3,
     outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect"
@@ -1668,9 +1667,9 @@ performance.boxplot <- performance.summary.df |>
   coord_cartesian(ylim = c(0, lim.rmse)) +
   scale_fill_manual(
     name = "GEV",
-    values = setNames(rep(col[c(1, 4)], each = 2), models[-5]),
-    breaks = models[c(1,3)],
-    labels = gsub(".*_", "", models[c(1,3)]),
+    values = setNames(rep(col[c(1, 4)], each = 2), models[c(1, 2, 5, 6)]),
+    breaks = models[c(1,5)],
+    labels = gsub(".*_", "", models[c(1,5)]),
     guide = guide_legend(
       override.aes = list(
         alpha = 0.4, 
@@ -1680,19 +1679,19 @@ performance.boxplot <- performance.summary.df |>
     ) +
   scale_alpha_manual(
     name = "d-GEV",
-    values = setNames(c(0.4, 0.95, 0.4, 0.95), models[-5]),
-    breaks = models[c(2,4)],
-    labels = gsub(".*_", "", models[c(2,4)]),
+    values = setNames(c(0.4, 0.95, 0.4, 0.95), models[c(1, 2, 5, 6)]),
+    breaks = models[c(2,6)],
+    labels = gsub(".*_", "", models[c(2,6)]),
     guide = guide_legend(
       override.aes = list(
-        fill = setNames(col[c(1, 4)], models[c(2,4)]), 
+        fill = setNames(col[c(1, 4)], models[c(2,6)]), 
         color = "black",
         linewidth = 0.2
       ))
   ) +
   labs(x = NULL, y = "rRMSE") +
   theme(
-    legend.position = c(0.99, 0.9),
+    legend.position = c(0.99, 0.92),
     legend.justification = c(1, 1),
     legend.spacing.y = unit(-2, "pt"),
     legend.title.position = "top",
@@ -1700,19 +1699,19 @@ performance.boxplot <- performance.summary.df |>
     legend.title = element_text(margin = margin(b = 1), hjust = 0)
   ); performance.boxplot
 
-ggsave("figuras/preliminares/subdiarios/boxplot_metricas.png", performance.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/boxplot_rmse_gev.png", performance.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
-# Boxplot
-models <- c("GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE", "IDF-SGB_NA")
+
+# Comparar com boxplots as estimativas com a GEV ajustada por duração e a d-GEV
+# com diferentes níveis de informação adicional e também com IDF-SGB
 
 # Quantas observações acima de um limite
-# lim.rmse <- 1.7
-lim.rmse <- 1.8
+lim.rmse <- 1
 outliers.rmse <- performance.summary.df |> # se não for mostrar a GEV, não precisa mostrar esses outliers
   filter(
     plot_pos == "weibull",
     r_rmse > lim.rmse,
-    prior %in% c(which.prior[c(1,2)], NA), # NA p/ pegar IDF-SGB 
+    model_label %in% models[c(2, 6, 7)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   mutate(
@@ -1726,60 +1725,36 @@ outliers.rmse <- performance.summary.df |> # se não for mostrar a GEV, não pre
     min_r_rmse = min(r_rmse),
     string = sprintf("[%s]", paste(id, collapse = ",")),
     .groups = "drop"
-  ) |> print()
+  )
 
-# Comparar com boxplots as estimativas com a GEV ajustada por duração e a d-GEV
-# com diferentes níveis de informação adicional e também com IDF-SGB
+width <- 0.8
 
 # RMSE relativo
 rmse.boxplot <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
-    model != "GEV",
-    prior %in% c(which.prior[c(1,2)], NA), # NA p/ pegar IDF-SGB
+    model_label %in% models[c(2, 6, 7)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   mutate(
     d = fct_reorder(paste(d, "h"), d),
-    prior = gsub(" .*", "", prior.names[prior]),
-    prior_label = factor(paste0(model, "_", prior), levels = c("IDF-SGB_NA", "GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE"))
+    model_label = factor(model_label, levels = models[c(7,2,6)])
   ) |> 
-  select(gauge_code, d, model, prior_label, plot_pos, r_rmse, r_bias) |> 
-  ggplot(aes(x = d, y = r_rmse, fill = prior_label, alpha = prior_label, color = prior_label)) +
+  select(gauge_code, d, model_label, plot_pos, r_rmse) |> 
+  ggplot(aes(x = d, y = r_rmse, fill = model_label)) +
   geom_boxplot(
     linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
-    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = 0.95
-  ) +
-  geom_text(aes(x = d, y = lim.rmse, label = string), outliers.rmse, inherit.aes = FALSE, family = font, size = textsize*0.8) +
-  coord_cartesian(ylim = c(0, lim.rmse)) +
-  scale_color_manual(
-    name = NULL,
-    values = setNames(rep("black", 5), models),
-    breaks = models[5], labels = gsub("_.*", "", models[5]),
-    guide = guide_legend(override.aes = list(fill = "grey85"), order = 1)
+    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = width
   ) +
   scale_fill_manual(
-    name = "GEV",
-    values = setNames(c(rep(col[c(1, 4)], each = 2), "grey85"), models),
-    breaks = models[c(1,3)], labels = gsub(".*_", "", models[c(1,3)]),
-    guide = guide_legend(override.aes = list(alpha = 0.4, color = "black", linewidth = 0.2))
-  ) +
-  scale_alpha_manual(
-    name = "d-GEV",
-    values = setNames(c(0.4, 0.95, 0.4, 0.95, 0.95), models),
-    breaks = models[c(2,4)], labels = gsub(".*_", "", models[c(2,4)]),
-    guide = guide_legend(
-      override.aes = list(
-        fill = setNames(col[c(1, 4)], models[c(2,4)]), 
-        color = "black", linewidth = 0.2
-      ))
+    name = NULL, 
+    values = setNames(c(sgb.col, prior.col[c(1, 4)]), models[c(7, 2, 6)]),
+    labels = c("IDF-SGB", "d-GEV (MLE)", "d-GEV (RGMLE)")
   ) +
   labs(x = NULL, y = "rRMSE") +
   theme(
-    # legend.position = c(0.01, 0.93),
-    legend.position = c(0.99, 0.93),
-    legend.justification = c(1, 1),
-    # legend.justification = c(0, 1),
+    legend.position = c(0.01, 0.975),
+    legend.justification = c(0, 1),
     legend.spacing.y = unit(-5, "pt"),
     legend.key.spacing.y = unit(1, "pt"),
     legend.title.position = "top",
@@ -1787,17 +1762,16 @@ rmse.boxplot <- performance.summary.df |>
     legend.title = element_text(margin = margin(b = 1), hjust = 0)
   ); rmse.boxplot
 
-ggsave("figuras/preliminares/subdiarios/boxplot_rmse_sce.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
-# ggsave("figuras/preliminares/subdiarios/boxplot_rmse_ols.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
-# ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+
 
 # BIAS relativo
-lim.bias <- 5
+lim.bias <- 5.3
 outliers.bias <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
     r_bias > lim.bias | r_bias < -lim.bias,
-    prior %in% c(which.prior[c(1,2)], NA),
+    model_label %in% models[c(7, 2, 6)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   mutate(
@@ -1813,53 +1787,33 @@ outliers.bias <- performance.summary.df |>
     string_pos = sprintf("[%s]", paste(id[r_bias > 0], collapse = ",")),
     string_neg = sprintf("[%s]", paste(id[r_bias < 0], collapse = ",")),
     .groups = "drop"
-  ) |> print()
+  )
 
 bias.boxplot <- performance.summary.df |> 
   filter(
     plot_pos == "weibull",
-    prior %in% c(which.prior[c(1,2)], NA), # NA p/ pegar IDF-SGB
+    model_label %in% models[c(7, 2, 6)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   mutate(
     d = fct_reorder(paste(d, "h"), d),
-    prior = gsub(" .*", "", prior.names[prior]),
-    prior_label = factor(paste0(model, "_", prior), levels = c("IDF-SGB_NA", "GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE"))
+    model_label = factor(model_label, levels = models[c(7,2,6)])
   ) |> 
-  select(gauge_code, d, model, prior_label, plot_pos, r_bias, r_bias) |> 
-  ggplot(aes(x = d, y = r_bias, fill = prior_label, alpha = prior_label, color = prior_label)) +
+  select(gauge_code, d, model, model_label, plot_pos, r_bias, r_bias) |> 
+  ggplot(aes(x = d, y = r_bias, fill = model_label)) +
   geom_boxplot(
     linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
-    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = 0.95
-  ) +
-  geom_text(aes(x = d, y = -lim.bias, label = string_neg), outliers.bias, inherit.aes = FALSE, family = font, size = textsize*0.8) +
-  coord_cartesian(ylim = c(-lim.bias, lim.bias)) +
-  scale_color_manual(
-    name = NULL,
-    values = setNames(rep("black", 5), models),
-    breaks = models[5], labels = gsub("_.*", "", models[5]),
-    guide = guide_legend(override.aes = list(fill = "grey85"), order = 1)
+    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = width
   ) +
   scale_fill_manual(
-    name = "GEV",
-    values = setNames(c(rep(col[c(1, 4)], each = 2), "grey85"), models),
-    breaks = models[c(1,3)], labels = gsub(".*_", "", models[c(1,3)]),
-    guide = guide_legend(override.aes = list(alpha = 0.4, color = "black", linewidth = 0.2))
+    name = NULL, 
+    values = setNames(c(sgb.col, prior.col[c(1, 4)]), models[c(7, 2, 6)]),
+    labels = c("IDF-SGB", "d-GEV (MLE)", "d-GEV (RGMLE)")
   ) +
-  scale_alpha_manual(
-    name = "d-GEV",
-    values = setNames(c(0.4, 0.95, 0.4, 0.95, 0.95), models),
-    breaks = models[c(2,4)], labels = gsub(".*_", "", models[c(2,4)]),
-    guide = guide_legend(
-      override.aes = list(
-        fill = setNames(col[c(1, 4)], models[c(2,4)]), 
-        color = "black", linewidth = 0.2
-      ))
-  ) +
-  labs(x = NULL, y = "rRMSE") +
+  labs(x = NULL, y = "rBIAS") +
   theme(
-    legend.position = c(0.98, 0.98),
-    legend.justification = c(1, 1),
+    legend.position = c(0.01, 0.975),
+    legend.justification = c(0, 1),
     legend.spacing.y = unit(-5, "pt"),
     legend.key.spacing.y = unit(1, "pt"),
     legend.title.position = "top",
@@ -1869,12 +1823,25 @@ bias.boxplot <- performance.summary.df |>
 
 ggsave("figuras/preliminares/subdiarios/boxplot_bias.png", bias.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
+
+
+# ------------------------------------------------------------------------
+
+
+# Comparar frequências observadas e modeladas plotando as IDFs
+# versus as intensidades observadas
+
+
+# Visualizar IDFs SGB
 par.labels <- performance.sgb.df |> 
   slice_head(by = gauge_code) |> 
-  select(gauge_code, k, gamma, eta, theta) |>
-  mutate(gauge_label = gauge.labels[gauge_code]) |> print()
+  mutate(
+    gauge_label = gauge.labels[gauge_code],
+    eta = c, theta = b
+  ) |> 
+  select(gauge_label, k, gamma, eta, theta)
 
-# Visualização da IDF de todas as estações
+# Visualização da IDF de todas as estações e comparar IDF-SGB com quantis da GEV por duração
 idf.sgb.plot <- performance.sgb.df |> 
   filter(plot_pos == "weibull") |> 
   left_join(
@@ -1895,93 +1862,120 @@ idf.sgb.plot <- performance.sgb.df |>
   ungroup() |> 
   ggplot(aes(x = d, group = factor(return_period))) +
   facet_wrap(~gauge_label, ncol = 4) +
-  geom_line(aes(y = q_gev, color = "GEV (LMOM)"), linewidth = 0.3) +
-  # geom_line(aes(y = imax, color = "Intensidades observadas"), linewidth = 0.3) +
+  # geom_line(aes(y = q_gev, color = "GEV (LMOM)"), linewidth = 0.3) +
+  geom_line(aes(y = imax, color = "Intensidades observadas"), linewidth = 0.3) +
   geom_line(aes(y = q, color = "IDF-SGB"), linewidth = 0.1) +
   geom_text(
-    aes(x = Inf, y = Inf, label = sprintf("λ: %6.3f", k)), par.labels, inherit.aes = FALSE,
+    aes(x = Inf, y = Inf, label = sprintf("k: %7.3f", k)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 1.8, size = textsize*0.55
   ) +
   geom_text(
-    aes(x = Inf, y = Inf, label = sprintf("k: %6.3f", gamma)), par.labels, inherit.aes = FALSE,
+    aes(x = Inf, y = Inf, label = sprintf("γ: %7.3f", gamma)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 3.3, size = textsize*0.55
   ) +
   geom_text(
-    aes(x = Inf, y = Inf, label = sprintf("η: %6.3f", eta)), par.labels, inherit.aes = FALSE,
+    aes(x = Inf, y = Inf, label = sprintf("η: %7.3f", eta)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 4.8, size = textsize*0.55
   ) +
   geom_text(
-    aes(x = Inf, y = Inf, label = sprintf("Θ: %6.3f", theta)), par.labels, inherit.aes = FALSE,
+    aes(x = Inf, y = Inf, label = sprintf("Θ: %7.3f", theta)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 6.3, size = textsize*0.55
   ) +
-  scale_x_log10(name = "Durações [h]") +
+  scale_x_log10(name = "Duração [h]") +
   scale_y_log10(name = "Intensidade [mm/h]") +
   scale_color_manual(
     name = NULL, 
-    values = c("GEV (LMOM)" = "grey80", "IDF-SGB" = "black")
-    # values = c("Intensidades observadas" = "grey80", "IDF-SGB" = "black")
+    # values = c("GEV (LMOM)" = "grey80", "IDF-SGB" = "firebrick")
+    values = c("Intensidades observadas" = "grey90", "IDF-SGB" = sgb.col)
   ) +
   theme(
     text = element_text(size = fontsize*0.8),
     strip.text = element_text(size = fontsize*0.6, margin = margin(b = 2)),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
     legend.margin = margin()
+  ) +
+  guides(
+    color = guide_legend(override.aes = list(linewidth = 0.4))
   ); idf.sgb.plot
 
-ggsave("figuras/preliminares/subdiarios/idf_sgb_gev_sce.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
-# ggsave("figuras/preliminares/subdiarios/idf_sgb_gev_ols.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
-# ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 
 
-# Comparar IDF-SGB c/ estimativas da d-GEV e intensidades observadas
-performance.df |> 
+# Visualizar d-GEV
+par.labels <- performance.dgev.df |> 
+  filter(model == "d-GEV", prior == names(prior.names)[[1]]) |> 
+  # filter(model == "d-GEV", prior == names(prior.names)[[4]]) |> 
+  slice_head(by = gauge_code) |> 
+  mutate(gauge_label = gauge.labels[gauge_code]) |> 
+  select(gauge_label, model, prior, par) |> 
+  unnest_wider(par)
+
+# Visualizar da IDF de todas as estações e comparar IDF-SGB com quantis da GEV por duração
+idf.dgev.plot <- performance.df |> 
   filter(
     plot_pos == "weibull",
-    model != "GEV",
-    prior %in% c(which.prior[c(1,2)], NA),
-    gauge_code == "A802"
+    model == "d-GEV"
   ) |> 
   mutate(
-    prior = gsub(" .*", "", prior.names[prior]),
-    gauge_label = gauge.labels[gauge_code],
-    prior_label = factor(
-      paste0(model, "_", prior), 
-      levels = c("IDF-SGB_NA", "GEV_MLE", "d-GEV_MLE", "GEV_RGMLE", "d-GEV_RGMLE")
-    )
-  ) |>
-  slice_max(return_period, n = 3, by = c(gauge_code, d, prior_label)) |> 
-  arrange(gauge_label, d, return_period, prior_label) |> 
+    gauge_label = gauge.labels[gauge_code]
+  ) |> 
   ggplot(aes(x = d, group = factor(return_period))) +
   facet_wrap(~gauge_label, ncol = 4) +
-  geom_line(aes(y = imax, color = "Observado"), linewidth = 0.3) +
-  geom_line(
-    aes(y = q, color = "IDF convencional"), ~filter(., prior_label == "IDF-SGB_NA"), 
-    linewidth = 0.3, alpha = 0.7, linetype = "dashed"
+  geom_line(aes(y = imax, color = "Intensidades observadas"), linewidth = 0.3) +
+  geom_line(aes(y = q, color = "d-GEV (MLE)"), ~filter(., prior == names(prior.names)[1]), linewidth = 0.1, alpha = 0.8) +
+  # geom_line(aes(y = q, color = "d-GEV (RGMLE)"), ~filter(., prior == names(prior.names)[4]), linewidth = 0.1, alpha = 0.8) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("κ: %7.3f", kappa)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 1.8, size = textsize*0.55
   ) +
-  geom_line(
-    aes(y = q, color = "d-GEV (MLE)"), ~filter(., prior_label == "d-GEV_MLE"), 
-    linewidth = 0.3, alpha = 0.7
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("H: %7.3f", H)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 3.3, size = textsize*0.55
   ) +
-  # geom_line(aes(y = q, color = "d-GEV (RGMLE)"), ~filter(., prior_label == "d-GEV_RGMLE"), linewidth = 0.2) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("θ: %7.3f", theta)), par.labels, inherit.aes = FALSE,
+    family = font, hjust = 1.1, vjust = 4.8, size = textsize*0.55
+  ) +
+  scale_x_log10(name = "Duração [h]") +
+  scale_y_log10(name = "Intensidade [mm/h]") +
   scale_color_manual(
-    name = NULL, 
-    values = c("Observado" = "grey80", "IDF convencional" = "#ff0000", "d-GEV (MLE)" = "#648FFF")
+    name = NULL,
+    values = c("d-GEV (MLE)" = prior.col[[1]], "Intensidades observadas" = "grey90")
+    # values = c("d-GEV (RGMLE)" = prior.col[[4]], "Intensidades observadas" = "grey90")
   ) +
-  scale_x_log10() +
-  scale_y_log10() +
   theme(
     text = element_text(size = fontsize*0.8),
     strip.text = element_text(size = fontsize*0.6, margin = margin(b = 2)),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
     legend.margin = margin()
-  )
-  
+  ) +
+  guides(
+    color = guide_legend(override.aes = list(linewidth = 0.4))
+  ); idf.dgev.plot
 
-ggsave("figuras/preliminares/subdiarios/idf_selecionadas.png", width = 15, height = 10, units = "cm", dpi = 300)
-ggsave("figuras/preliminares/subdiarios/idf_todo_mundo.png", width = 15.5, height = 23, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_dgev_mle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+# ggsave("figuras/preliminares/subdiarios/idf_dgev_rgmle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+
+
+# ------------------------------------------------------------------------
+
+# Avaliar o viés espacialmente
+
+
+
+## CURVAS DE FREQUÊNCIA --------------------------------------------------
+
+# Plotar curvas de frequências p/ comparar quantis estimados c/ 
+
+
+# ------------------------------------------------------------------------
+
+
 
 # Exemplo curva IDF Porto Alegre SGB Atlas Pluviométrico
 # Esta figura vai p/ exemplificar uma curva IDF no referencial teórico
+
+
 rps <- c(2, 5, 10, 25, 50, 100)
 ds <- c(seq(5, 60, 5), seq(2, 24, 2)*60) # minutos
 k <- 812.9
