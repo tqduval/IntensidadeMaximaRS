@@ -1426,9 +1426,9 @@ performance.sgb.df <- freq.obs.sgb |>
   mutate(
     d_min = d*60, # IDF-SGB usa duração em minutos
     q = purrr::pmap_dbl(
-      .l = list(k, gamma, b, c, return_period, d_min),
-      .f = function(k, gamma, theta, eta, rp, ds){
-        if(any(is.na(c(k, gamma, eta, theta)))){
+      .l = list(k, gamma, b, c, return_period, d_min), # modelo IDF-SGB usa `b` como parâmetro de deslocamento (`theta`)
+      .f = function(k, gamma, theta, eta, rp, ds){     # e `c` como o expoente do denominador (`eta` ou `H`)
+        if(any(is.na(c(k, gamma, eta, theta)))){       # a função `idf.sgb()` está escrita com `eta` e `theta`
           return(NA_real_)
         } else{
           idf.sgb(par = c(k, gamma, eta, theta), return.period = rp, duration = ds)
@@ -1505,6 +1505,8 @@ pos <- position_dodge(width + 0.2)
 performance.summary.df |> 
   filter(
     plot_pos == "weibull",
+    # # plot_pos == "cunnane",
+    # plot_pos == "gringorten",
     model == "d-GEV", # alterar modelo aqui
     d %in% c(1, 6, 12, 24)
   ) |> 
@@ -1620,6 +1622,7 @@ ggsave("figuras/preliminares/subdiarios/metricas_rrmse_weibull.png", width = 15.
 # Boxplot
 models <- unique(performance.summary.df$model_label)
 sgb.col <- "grey50"
+which.position <- "weibull"
 
 # Comparar modelos com e sem distribuição a priori
 
@@ -1627,7 +1630,7 @@ sgb.col <- "grey50"
 lim.rmse <- 0.7
 outliers.rmse <- performance.summary.df |> 
   filter(
-    plot_pos == "weibull",
+    plot_pos == which.position,
     r_rmse > lim.rmse,                   # selecionar 
     model_label %in% models[c(1, 2, 3, 4)], # escolher modelos
     d %in% c(1, 3, 6, 9, 12, 18, 24)
@@ -1649,7 +1652,7 @@ outliers.rmse <- performance.summary.df |>
 # com diferentes níveis de informação adicional
 performance.boxplot <- performance.summary.df |> 
   filter(
-    plot_pos == "weibull",
+    plot_pos == which.position,
     model_label %in% models[c(1, 2, 5, 6)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
@@ -1689,7 +1692,7 @@ performance.boxplot <- performance.summary.df |>
         linewidth = 0.2
       ))
   ) +
-  labs(x = NULL, y = "rRMSE") +
+  labs(x = NULL, y = "rRMSE", caption = paste("posicao_plotagem:", which.position)) +
   theme(
     legend.position = c(0.99, 0.92),
     legend.justification = c(1, 1),
@@ -1700,16 +1703,21 @@ performance.boxplot <- performance.summary.df |>
   ); performance.boxplot
 
 ggsave("figuras/preliminares/subdiarios/boxplot_rmse_gev.png", performance.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+# ggsave(
+#   sprintf("figuras/preliminares/subdiarios/analise_pos_plot/boxplot_rmse_gev_%s.png", which.position), performance.boxplot, 
+#   width = 15, height = 10, units = "cm", dpi = 300
+# )
 
 
 # Comparar com boxplots as estimativas com a GEV ajustada por duração e a d-GEV
 # com diferentes níveis de informação adicional e também com IDF-SGB
+which.position <- "weibull"
 
 # Quantas observações acima de um limite
 lim.rmse <- 1
 outliers.rmse <- performance.summary.df |> # se não for mostrar a GEV, não precisa mostrar esses outliers
   filter(
-    plot_pos == "weibull",
+    plot_pos == which.position,
     r_rmse > lim.rmse,
     model_label %in% models[c(2, 6, 7)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
@@ -1732,7 +1740,7 @@ width <- 0.8
 # RMSE relativo
 rmse.boxplot <- performance.summary.df |> 
   filter(
-    plot_pos == "weibull",
+    plot_pos == which.position,
     model_label %in% models[c(2, 6, 7)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
@@ -1752,6 +1760,7 @@ rmse.boxplot <- performance.summary.df |>
     labels = c("IDF-SGB", "d-GEV (MLE)", "d-GEV (RGMLE)")
   ) +
   labs(x = NULL, y = "rRMSE") +
+  # labs(x = NULL, y = "rRMSE", caption = paste("posicao_plotagem:", which.position)) +
   theme(
     legend.position = c(0.01, 0.975),
     legend.justification = c(0, 1),
@@ -1763,13 +1772,53 @@ rmse.boxplot <- performance.summary.df |>
   ); rmse.boxplot
 
 ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
+# ggsave(
+#   sprintf("figuras/preliminares/subdiarios/analise_pos_plot/boxplot_rmse_%s.png", which.position), rmse.boxplot, 
+#   width = 15, height = 10, units = "cm", dpi = 300
+# )
 
+
+#### Informações complementares ##########################################
+
+# Mediana do rRMSE p/ diferentes durações
+performance.summary.df |> 
+  filter(plot_pos == which.position, model == "IDF-SGB") |> 
+  group_by(d = factor(d)) |> 
+  summarise(
+    q25 = quantile(r_rmse, probs = 0.25),
+    q50 = quantile(r_rmse, probs = 0.5),
+    q75 = quantile(r_rmse, probs = 0.75),
+    iqr = q75 - q25,
+    max = max(r_rmse, na.rm = TRUE),
+    max_gauge = gauge_code[which.max(r_rmse)],
+    max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
+    .groups = "drop"
+  ) |> print(n = 24)
+
+# Mediana do rBIAS p/ diferentes durações
+performance.summary.df |> 
+  filter(plot_pos == which.position, model == "IDF-SGB") |> 
+  group_by(d = factor(d)) |> 
+  summarise(
+    q25 = quantile(r_bias, probs = 0.25),
+    q50 = quantile(r_bias, probs = 0.5),
+    q75 = quantile(r_bias, probs = 0.75),
+    iqr = q75 - q25,
+    max = max(r_bias, na.rm = TRUE),
+    max_gauge = gauge_code[which.max(r_bias)],
+    max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
+    .groups = "drop"
+  ) |> print(n = 24)
+
+# 
+
+idf.sgb.df[idf.sgb.df$gauge_code == "432260802A",]
 
 # BIAS relativo
 lim.bias <- 5.3
 outliers.bias <- performance.summary.df |> 
   filter(
-    plot_pos == "weibull",
+    plot_pos == which.position,
     r_bias > lim.bias | r_bias < -lim.bias,
     model_label %in% models[c(7, 2, 6)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
@@ -1791,7 +1840,7 @@ outliers.bias <- performance.summary.df |>
 
 bias.boxplot <- performance.summary.df |> 
   filter(
-    plot_pos == "weibull",
+    plot_pos == which.position,
     model_label %in% models[c(7, 2, 6)],
     d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
