@@ -1782,8 +1782,12 @@ ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width =
 
 # Mediana do rRMSE p/ diferentes durações
 performance.summary.df |> 
-  filter(plot_pos == which.position, model == "IDF-SGB") |> 
-  group_by(d = factor(d)) |> 
+  # filter(plot_pos == which.position, model == "IDF-SGB") |> 
+  filter(
+    plot_pos == which.position, model == "d-GEV", prior %in% c("NULL", "c(0.0178, 0.0627)"),
+    d %in% c(1, 3, 6, 9, 12, 18, 24)
+  ) |> 
+  group_by(model, prior, d = factor(d)) |> 
   summarise(
     q25 = quantile(r_rmse, probs = 0.25),
     q50 = quantile(r_rmse, probs = 0.5),
@@ -1793,12 +1797,12 @@ performance.summary.df |>
     max_gauge = gauge_code[which.max(r_rmse)],
     max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
     .groups = "drop"
-  ) |> print(n = 24)
+  ) |> arrange(d) |> print(n = 24)
 
 # Mediana do rBIAS p/ diferentes durações
 performance.summary.df |> 
-  filter(plot_pos == which.position, model == "IDF-SGB") |> 
-  group_by(d = factor(d)) |> 
+  filter(plot_pos == which.position, model == "d-GEV") |> # como são próximos, acho razoável 
+  group_by(model, d = factor(d)) |>                       # agrupar os dois modelos da d-GEV 
   summarise(
     q25 = quantile(r_bias, probs = 0.25),
     q50 = quantile(r_bias, probs = 0.5),
@@ -1810,7 +1814,7 @@ performance.summary.df |>
     .groups = "drop"
   ) |> print(n = 24)
 
-# 
+########################################################################## 
 
 idf.sgb.df[idf.sgb.df$gauge_code == "432260802A",]
 
