@@ -38,6 +38,11 @@ fgev.lmom <- function(x, rp){
   )
 }
 
+idf.sgb <- function(par, return.period, duration){
+  k <- par[[1]]; gamma <- par[[2]]; eta <- par[[3]]; theta <- par[[4]]
+  k*return.period^gamma/(duration + theta)^eta
+}
+
 fitsgb.idf <- function(data, objective = c("REQM", "DPMA"), b.interval = c(0, 120)){
 
   objective <- match.arg(objective, c("REQM", "DPMA"))
@@ -151,7 +156,7 @@ imax.df <- read_parquet("base/gerados/df_imax.pqt") |>
 
 # Ajustar GEV por estação e duração
 rp <- c(2, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100)
-idf.df <- imax.df |> 
+idf.lmom <- imax.df |> 
   mutate(duration_min = d*60) |> 
   group_by(gauge_code, d, duration_min) |> 
   group_modify(~fgev.lmom(.x$imax, rp)) |> 
@@ -168,11 +173,11 @@ station.info <- imax.df |>
   )
 
 # Extrair tabela somente c/ parâmetros da GEV
-gev.par.df <- idf.df |> 
+gev.par.df <- idf.lmom |> 
   distinct(gauge_code, d, duration_min, xi, alpha, kappa)
 
 # Ajuste da IDF p/ cada estação usando REQM
-idf.sgb.df <- idf.df |> 
+idf.sgb.df <- idf.lmom |> 
   group_by(gauge_code) |> 
   group_modify(~fitsgb.idf(.x, objective = "REQM")) |> 
   ungroup() |> 

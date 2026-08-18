@@ -6,7 +6,10 @@ rm(list = ls()); gc()
 
 # PACOTES ----------------------------------------------------------------
 
-pacman::p_load(pacman, tidyverse, arrow, readxl, lmom, sf, ggspatial, patchwork, xtable, ggtext, ggrepel, geomtextpath)
+pacman::p_load(
+  pacman, tidyverse, arrow, readxl, lmom, sf, moments,
+  ggspatial, patchwork, xtable, ggtext, ggrepel, geomtextpath
+)
 
 # Set theme
 font <- "JetBrainsMono NF"
@@ -194,6 +197,96 @@ cat(
   file = "tabelas/5_daily_info_table.txt",
   sep = ""
 )
+
+
+
+## TABELA ESTATÍSTICAS BÁSICAS -------------------------------------------
+
+# Função que calcula a tabela resumo igual Papalexiou e Koutsoyiannis (2013)
+# Originalmente summary.stats
+get.stats <- function(x){
+  gg.stats <- c(
+    n_years = length(x),
+    mean = mean(x, na.rm = TRUE),
+    p0 = sum(x == 0)/length(x),
+    median = median(x, na.rm = TRUE),
+    sd = sd(x, na.rm = TRUE),
+    t3 = lmom::samlmu(x)[[3]],
+    t4 = lmom::samlmu(x)[[4]]
+  )
+}
+
+# Originalmente fun.estat.bas
+summary.stats <- function(x){
+  c(
+    min = min(x, na.rm = TRUE),
+    q05 = quantile(x, 0.05, na.rm = TRUE),
+    q25 = quantile(x, 0.25, na.rm = TRUE),
+    mediana = median(x, na.rm = TRUE),
+    q75 = quantile(x, 0.75, na.rm = TRUE),
+    q95 = quantile(x, 0.95, na.rm = TRUE),
+    max = max(x, na.rm = TRUE),
+    media = mean(x, na.rm = TRUE),
+    assimetria = moments::skewness(x, na.rm = TRUE)
+  )
+}
+
+
+# Estatísticas básicas
+# Aplicar resumo por estação
+stats.df <- pmax.df |> 
+  group_by(gauge_code) |> 
+  group_modify(~as.data.frame(t(get.stats(.x$peak_24h)))) |>
+  ungroup() |> 
+  select(-p0)
+
+# Aplicar resumo por estatística
+stats.table <- apply(as.matrix(stats.df[,-1]), 2, summary.stats)
+rownames(stats.table) <- c("Min", "$Q_5$", "$Q_{25}$", "$Q_{50}$", "$Q_{75}$", "$Q_{95}$", "Max", "Média", "Assimetria")
+colnames(stats.table) <- c("$N$", "Média", "Mediana", "$SD$", "$\\hat\\tau_3$", "$\\hat\\tau_4$")
+n.col <- ncol(stats.table)
+
+stats.xtable <- xtable::xtable(
+  x = stats.table,
+  caption = sprintf("Estatísticas básicas do conjunto de %g séries de máximos anuais de precipitação diária", nrow(stats.df)),
+  label = "tab_estatisticas_diarias",
+  align = c("l", rep("c", ncol(stats.table))),
+  digits = 3
+)
+
+stats.string <- print(
+  stats.xtable, type = "latex", include.rownames = TRUE, caption.placement = "top",
+  sanitize.colnames.function = identity,
+  sanitize.text.function = identity,
+  hline.after = c(-1)
+)
+
+cat(
+  "\\begingroup\n\\footnotesize\n",
+  stats.string,
+  "\\endgroup\n",
+  file = "tabelas/5_estatisticas_basicas_diarios.txt",
+  sep = ""
+)
+
+# Localização da estação com registro mais longo
+longest <- info.df$gauge_code[which.max(info.df$n_years)]
+pmax.original[pmax.original$gauge_code == longest, c("gauge_code", "city")]
+info.df$id[info.df$gauge_code == longest]
+
+# Localização estação com maior peak_24h registrado
+max.pmax <- pmax.df$gauge_code[which.max(pmax.df$peak_24h)] |> print()
+pmax.original[pmax.original$gauge_code == max.pmax, c("gauge_code", "city")]
+info.df$id[info.df$gauge_code == max.pmax]
+
+# Estações com os valores mais altos e mais baixos de L-curtose
+high.kt <- stats.df$gauge_code[which.min(stats.df$t4)]
+pmax.original[pmax.original$gauge_code == high.kt, c("gauge_code", "city")]
+info.df$id[info.df$gauge_code == high.kt]
+
+# Razões negativas
+stats.df[stats.df$t3 < 0,]
+stats.df[stats.df$t4 < 0,]
 
 
 # L-MOMENTOS -------------------------------------------------------------

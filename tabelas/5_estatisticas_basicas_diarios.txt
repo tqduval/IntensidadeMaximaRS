@@ -1,0 +1,23 @@
+\begingroup
+\footnotesize
+% latex table generated in R 4.6.1 by xtable 1.8-8 package
+% Tue Aug 18 19:11:48 2026
+\begin{table}[ht]
+\centering
+\caption{Estatísticas básicas do conjunto de 182 séries de máximos anuais de precipitação diária} 
+\label{tab_estatisticas_diarias}
+\begin{tabular}{lcccccc}
+  \hline
+ & $N$ & Média & Mediana & $SD$ & $\hat\tau_3$ & $\hat\tau_4$ \\ 
+ Min & 31.000 & 74.311 & 68.300 & 18.515 & -0.076 & -0.039 \\ 
+  $Q_5$ & 33.000 & 83.512 & 78.705 & 21.534 & 0.033 & 0.029 \\ 
+  $Q_{25}$ & 41.000 & 92.080 & 86.662 & 24.163 & 0.107 & 0.089 \\ 
+  $Q_{50}$ & 50.000 & 98.719 & 94.425 & 26.547 & 0.149 & 0.126 \\ 
+  $Q_{75}$ & 61.000 & 105.902 & 101.650 & 29.140 & 0.203 & 0.159 \\ 
+  $Q_{95}$ & 76.950 & 113.998 & 111.606 & 33.556 & 0.279 & 0.223 \\ 
+  Max & 105.000 & 122.192 & 120.000 & 37.799 & 0.355 & 0.314 \\ 
+  Média & 52.170 & 98.798 & 94.409 & 26.858 & 0.153 & 0.127 \\ 
+  Assimetria & 0.952 & 0.065 & 0.109 & 0.424 & 0.068 & 0.193 \\ 
+  \end{tabular}
+\end{table}
+\endgroup

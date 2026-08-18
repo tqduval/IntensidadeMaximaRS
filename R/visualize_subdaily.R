@@ -3,7 +3,7 @@ rm(list = ls()); invisible(gc())
 
 pacman::p_load(
   pacman, tidyverse, arrow, 
-  ggtext, ggrepel, ggspatial, patchwork, extrafont, ggpattern,
+  ggtext, ggrepel, ggspatial, patchwork, extrafont, ggpattern, ggpp,
   sf, rnaturalearth, tidyterra, spdep,
   xtable
 )
@@ -37,7 +37,7 @@ ggplot2::set_theme(
 # Ajuste modelos
 source("R/funcoes/fdgev.R") # d-GEV
 source("R/funcoes/fgev.R")
-source("R/funcoes/idf_sgb.R")
+# source("R/funcoes/idf_sgb.R")
 
 # Quantil d-GEV
 qdgev <- function(param, duration, p.nexceed){
@@ -62,26 +62,26 @@ qdgev <- function(param, duration, p.nexceed){
 }
 
 # Função p/ dissolver bordas
-dissolve_boundaries <- function(x) {
-  if (!requireNamespace("spdep")) {
-    stop("spdep is needed to use this function")
-  }
+# dissolve_boundaries <- function(x) {
+#   if (!requireNamespace("spdep")) {
+#     stop("spdep is needed to use this function")
+#   }
 
-  crs <- sf::st_crs(x)
-  nbs <- spdep::poly2nb(x)
-  nb_ids <- attr(nbs, "ncomp")[["comp.id"]]
-  res <- lapply(
-    split(x, nb_ids),
-    sf::st_union,
-    is_coverage = TRUE
-  )
+#   crs <- sf::st_crs(x)
+#   nbs <- spdep::poly2nb(x)
+#   nb_ids <- attr(nbs, "ncomp")[["comp.id"]]
+#   res <- lapply(
+#     split(x, nb_ids),
+#     sf::st_union,
+#     is_coverage = TRUE
+#   )
 
-  sf::st_sfc(
-    unlist(res, recursive = FALSE),
-    crs = crs
-  ) |> sf::st_combine()
+#   sf::st_sfc(
+#     unlist(res, recursive = FALSE),
+#     crs = crs
+#   ) |> sf::st_combine()
 
-}
+# }
 
 # LER DADOS --------------------------------------------------------------
 
@@ -147,48 +147,38 @@ anadem <- terra::crop(raster.anadem, rs.sf, mask = TRUE)
 
 ## d-GEV -----------------------------------------------------------------
 
-# Ler lista resultados perfil verossimilhança
-# fitprof_dgev.R
-fitprof.dgev.nprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_nprior.rds") # versão sem priori
-fitprof.dgev.wprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior.rds") # versão com priori regional
-fitprof.dgev.wprior.ninfo.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior_ninfo.rds") # versão com priori pouco informativa
-fitprof.dgev.wprior.martins.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior_martins.rds") # versão com priori Martins
-invisible(gc())
+# # Ler lista resultados perfil verossimilhança
+# # fitprof_dgev.R
+# fitprof.dgev.nprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_nprior.rds") # versão sem priori
+# fitprof.dgev.wprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior.rds") # versão com priori regional
+# fitprof.dgev.wprior.ninfo.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior_ninfo.rds") # versão com priori pouco informativa
+# fitprof.dgev.wprior.martins.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior_martins.rds") # versão com priori Martins
+# invisible(gc())
 
-# Checar resultados da rodada 'wprior' com correções
-# fitprof.wprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior2.rds") # temp
-# par.df <- fitprof.wprior.ls$par # temp
-# idf.df <- fitprof.wprior.ls$idf # temp
-# par.df <- fitprof.nprior.ls$par # temp
-# idf.df <- fitprof.nprior.ls$idf # temp
+# # Checar resultados da rodada 'wprior' com correções
+# # fitprof.wprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior2.rds") # temp
+# # par.df <- fitprof.wprior.ls$par # temp
+# # idf.df <- fitprof.wprior.ls$idf # temp
+# # par.df <- fitprof.nprior.ls$par # temp
+# # idf.df <- fitprof.nprior.ls$idf # temp
 
-# Parâmetros
-par.dgev.df <- bind_rows(
-  fitprof.dgev.nprior.ls$par,
-  fitprof.dgev.wprior.ls$par,
-  fitprof.dgev.wprior.ninfo.ls$par,
-  fitprof.dgev.wprior.martins.ls$par
-)
+# # Parâmetros
+# par.dgev.df <- bind_rows(
+#   fitprof.dgev.nprior.ls$par,
+#   fitprof.dgev.wprior.ls$par,
+#   fitprof.dgev.wprior.ninfo.ls$par,
+#   fitprof.dgev.wprior.martins.ls$par
+# )
 
-# Quantis
-idf.dgev.df <- bind_rows(
-  fitprof.dgev.nprior.ls$idf,
-  fitprof.dgev.wprior.ls$idf,
-  fitprof.dgev.wprior.ninfo.ls$idf,
-  fitprof.dgev.wprior.martins.ls$idf
-)
+# # Quantis
+# idf.dgev.df <- bind_rows(
+#   fitprof.dgev.nprior.ls$idf,
+#   fitprof.dgev.wprior.ls$idf,
+#   fitprof.dgev.wprior.ninfo.ls$idf,
+#   fitprof.dgev.wprior.martins.ls$idf
+# )
 
-# Atribuir nomes aos dados em `prior`
-which.prior <- unique(par.dgev.df$prior)
-# prior.names <- setNames(c("MLE", "RGMLE", "GMLE"), which.prior) # GMLE aqui é a não informativa
-prior.names <- paste(c("MLE", "RGMLE", "GMLE", "GMLE"), "–", gsub("c", "B", which.prior))
-prior.names <- gsub(" – NULL", "", prior.names)
-prior.names <- setNames(prior.names, which.prior)
-prior.names <- prior.names[c(1, 4, 3, 2)]
-par.dgev.df <- par.dgev.df |> mutate(model = prior.names[prior])
-idf.dgev.df <- idf.dgev.df |> mutate(model = prior.names[prior])
-
-durations <- c(1, 6, 12, 24)
+# durations <- c(1, 6, 12, 24)
 
 # Profiles
 # prof.par <- bind_rows(
@@ -212,9 +202,24 @@ durations <- c(1, 6, 12, 24)
 #   ) |> 
 #   relocate(model, .after = last_col())
 
-# Remover `fitprof.dgev` do ambiente
-rm(list = ls()[grepl("fitprof.dgev", ls())])
-invisible(gc())
+# # Remover `fitprof.dgev` do ambiente
+# rm(list = ls()[grepl("fitprof.dgev", ls())])
+# invisible(gc())
+
+# write_parquet(par.dgev.df, "base/gerados/df_par_dgev.pqt")
+# write_parquet(idf.dgev.df, "base/gerados/df_idf_dgev.pqt")
+par.dgev.df <- read_parquet("base/gerados/df_par_dgev.pqt")
+idf.dgev.df <- read_parquet("base/gerados/df_idf_dgev.pqt")
+
+# Atribuir nomes aos dados em `prior`
+which.prior <- unique(par.dgev.df$prior)
+# prior.names <- setNames(c("MLE", "RGMLE", "GMLE"), which.prior) # GMLE aqui é a não informativa
+prior.names <- paste(c("MLE", "RGMLE", "GMLE", "GMLE"), "–", gsub("c", "B", which.prior))
+prior.names <- gsub(" – NULL", "", prior.names)
+prior.names <- setNames(prior.names, which.prior)
+prior.names <- prior.names[c(1, 4, 3, 2)]
+par.dgev.df <- par.dgev.df |> mutate(model = prior.names[prior])
+idf.dgev.df <- idf.dgev.df |> mutate(model = prior.names[prior])
 
 
 ## GEV POR DURAÇÃO -------------------------------------------------------
@@ -223,31 +228,38 @@ invisible(gc())
 # shape_ci_boot_only_lmom.R
 shape.boot.df <- arrow::read_parquet("base/gerados/df_shapes_boot_lmom.pqt")
 
-# Estimativas com perfil de verossimilhança por duração (tem que rodar ainda)
-# Por duração sem priori
-fitprof.gev.nprior.ls <- readRDS("base/gerados/ls_fit_gev_prof_nprior.rds")
-fitprof.gev.wprior.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior.rds")
-fitprof.gev.wprior.ninfo.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior_ninfo.rds")
-fitprof.gev.wprior.martins.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior_martins.rds")
+# # Estimativas com perfil de verossimilhança por duração (tem que rodar ainda)
+# # Por duração sem priori
+# fitprof.gev.nprior.ls <- readRDS("base/gerados/ls_fit_gev_prof_nprior.rds")
+# fitprof.gev.wprior.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior.rds")
+# fitprof.gev.wprior.ninfo.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior_ninfo.rds")
+# fitprof.gev.wprior.martins.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior_martins.rds")
 
-# Parâmetros
-par.gev.df <- bind_rows(
-  fitprof.gev.nprior.ls$par,
-  fitprof.gev.wprior.ls$par,
-  fitprof.gev.wprior.ninfo.ls$par,
-  fitprof.gev.wprior.martins.ls$par
-)
+# # Parâmetros
+# par.gev.df <- bind_rows(
+#   fitprof.gev.nprior.ls$par,
+#   fitprof.gev.wprior.ls$par,
+#   fitprof.gev.wprior.ninfo.ls$par,
+#   fitprof.gev.wprior.martins.ls$par
+# )
 
-# Quantis
-idf.gev.df <- bind_rows(
-  fitprof.gev.nprior.ls$idf,
-  fitprof.gev.wprior.ls$idf,
-  fitprof.gev.wprior.ninfo.ls$idf,
-  fitprof.gev.wprior.martins.ls$idf
-)
+# # Quantis
+# idf.gev.df <- bind_rows(
+#   fitprof.gev.nprior.ls$idf,
+#   fitprof.gev.wprior.ls$idf,
+#   fitprof.gev.wprior.ninfo.ls$idf,
+#   fitprof.gev.wprior.martins.ls$idf
+# )
 
-rm(list = ls()[grepl("fitprof.gev", ls())])
-invisible(gc())
+# rm(list = ls()[grepl("fitprof.gev", ls())])
+# invisible(gc())
+
+# write_parquet(par.gev.df, "base/gerados/df_par_gev.pqt")
+# write_parquet(idf.gev.df, "base/gerados/df_idf_gev.pqt")
+par.gev.df <- read_parquet("base/gerados/df_par_gev.pqt")
+idf.gev.df <- read_parquet("base/gerados/df_idf_gev.pqt")
+
+
 
 # VISUALIZAÇÃO -----------------------------------------------------------
 
@@ -277,14 +289,6 @@ gauge.ids <- imax.df |>
 # Cores
 which.model <- unique(par.dgev.df$model)
 col <- c("#648FFF", "#dc267f", "#FE6100")
-colors <- c("#2baa68", "#648fff", "#dc267f", "#fe6100")
-model.col <- setNames(col, which.model)
-
-
-# Durações de referência
-durations <- c(1, 6, 12, 24)
-d.shapes <- setNames(c(15, 16, 17, 18), durations)
-d.colors <- setNames(c("#ff0000", "#ffe100", "#02ca23", "#2585ec"), durations)
 
 
 
@@ -750,6 +754,8 @@ ggsave(
 select.gg <- c("A801", "A831", "432300204A")
 pos.width <- position_dodge(0.6)
 
+col <- c("#648FFF", "#dc267f", "#e1a3aa", "#FE6100")
+prior.col <- setNames(col, prior.names)
 
 # Visualizar intervalos de confiança de kappa POR DURAÇÃO com estimativas
 # da GEV com L-momentos --- figura c/ todas as estações
@@ -775,7 +781,8 @@ shape.boot.plot <- shape.boot.df |>
     axis.title.x = element_blank(),
     # axis.text.x = element_text(angle = 90, hjust = 1),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
-    strip.text = element_text(hjust = 0)
+    panel.spacing.y = unit(2, "pt"),
+    strip.text = element_text(hjust = 0, size = fontsize*0.7, margin = margin(t = 3, b = 2))
   ); shape.boot.plot
 
 ggsave("figuras/preliminares/subdiarios/ci_kappa_gev_lmom_boot.png", shape.boot.plot, height = 22, width = 16, units = "cm", dpi = 300)
@@ -788,7 +795,7 @@ shape.boot.plot <- shape.boot.df |>
   mutate(gauge_label = gauge.labels[gauge_code]) |> 
   select(!c(model, method, id)) |> 
   ggplot(aes(x = factor(d), y = kappa)) +
-  facet_wrap(~factor(gauge_label, levels = order.n), ncol = 4) +
+  facet_wrap(~factor(gauge_label, levels = order.n), nrow = 1) +
   geom_hline(yintercept = c(-0.5, 0.5), linetype = "dashed", linewidth = 0.2, color = "grey60") +
   geom_hline(yintercept = 0, color = "grey80", linewidth = 0.2) +
   geom_errorbar(
@@ -796,104 +803,94 @@ shape.boot.plot <- shape.boot.df |>
     width = 0, linewidth = 0.3, alpha = 0.7, color = "#2baa68", position = pos.width) +
   geom_point(size = 0.15, position = pos.width, color = "#2baa68") +
   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
-  labs(y = "κ") +
+  labs(x = "Duração [h]", y = "κ") +
   theme(
     legend.position = c(1, 0),
     legend.justification = c(1, 0),
-    legend.margin = margin(5, 5, 1, 5),
-    legend.key.size = unit(3, "mm"),
-    text = element_text(size = fontsize*0.8),
-    axis.title.x = element_blank(),
-    # axis.text.x = element_text(angle = 90, hjust = 1),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
     strip.text = element_text(hjust = 0)
   ); shape.boot.plot
 
 ggsave(
   "figuras/preliminares/subdiarios/ci_kappa_gev_lmom_boot_selected.png", shape.boot.plot, 
-  height = 6, width = 15, units = "cm", dpi = 300
+  height = 7, width = 15, units = "cm", dpi = 300
 )
-
-
-# Visualizar intervalos de confiança para kappa POR DURAÇÃO
-# com estimativas com perfil de verossimilhança + priori Beta(0, 0.122^2)
-shape.prof.plot <- par.gev.df |> 
-  mutate(
-    gauge_label = gauge.labels[gauge_code],
-    prior_label = prior.names[prior]
-  ) |>  
-  filter(
-    parname == "kappa",
-    prior_label == prior.names[3]
-  ) |> 
-  ggplot(aes(x = factor(d), y = par)) +
-  facet_wrap(~factor(gauge_label, order.n), ncol = 4, scales = "free_y") +
-  geom_hline(yintercept = c(-0.5, 0.5), linetype = "dashed", linewidth = 0.2, color = "grey60") +
-  geom_hline(yintercept = 0, color = "grey80", linewidth = 0.2) +
-  geom_errorbar(
-    aes(ymin = ci_lower, ymax = ci_upper), 
-    width = 0, linewidth = 0.3, alpha = 0.7, color = "#eb78b0", position = pos.width) +
-  geom_point(size = 0.15, position = pos.width, color = "#eb78b0") +
-  scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
-  labs(y = "κ") +
-  theme(
-    legend.position = c(1, 0),
-    legend.justification = c(1, 0),
-    legend.margin = margin(5, 5, 1, 5),
-    legend.key.size = unit(3, "mm"),
-    text = element_text(size = fontsize*0.8),
-    axis.title.x = element_blank(),
-    # axis.text.x = element_text(angle = 90, hjust = 1),
-    panel.border = element_rect(linewidth = 0.3, color = "black"),
-    strip.text = element_text(hjust = 0)
-  ); shape.prof.plot
-  
-ggsave(
-  "figuras/preliminares/subdiarios/ci_kappa_gev_gmle_prof.png", shape.prof.plot, 
-  height = 22, width = 16, units = "cm", dpi = 300
- )
 
 
 # Visualizar intervalos de confiança p/ kappa com POR DURAÇÃO
-# com estimativas com perfil de verossimilhança + priori Beta(0, 0.122^2)
+# com estimativas com perfil de verossimilhança + priori GMLE (media 0 e -0.1) e RGMLE
 # p/ estações selecionadas --- `select.gg`
-
 shape.prof.plot <- par.gev.df |> 
-  filter(gauge_code %in% select.gg) |> 
+  filter(gauge_code == select.gg[1]) |> 
   mutate(
     gauge_label = gauge.labels[gauge_code],
-    prior_label = prior.names[prior]
+    prior_label = factor(prior.names[prior], prior.names)
   ) |> 
   filter(
     parname == "kappa",
-    prior_label == prior.names[3]
+    prior_label %in% prior.names[2:4] # selecionar GMLE - B(0,0.122); GMLE - B(-0.1,0.122); RGMLE - B(0.0178,0.0627)
   ) |> 
-  ggplot(aes(x = factor(d), y = par)) +
+  ggplot(aes(x = factor(d), y = par, color = prior_label)) +
   facet_wrap(~factor(gauge_label, order.n), ncol = 4) +
-  geom_hline(yintercept = c(-0.5, 0.5), linetype = "dashed", linewidth = 0.2, color = "grey60") +
+  # geom_hline(yintercept = c(-0.5, 0.5), linetype = "dashed", linewidth = 0.2, color = "grey60") +
   geom_hline(yintercept = 0, color = "grey80", linewidth = 0.2) +
   geom_errorbar(
     aes(ymin = ci_lower, ymax = ci_upper), 
-    width = 0, linewidth = 0.3, alpha = 0.7, color = "#eb78b0", position = pos.width) +
-  geom_point(size = 0.15, position = pos.width, color = "#eb78b0") +
+    width = 0, linewidth = 0.4, alpha = 0.7, position = position_dodge(0.55)
+  ) +
+  geom_point(size = 0.3, position = position_dodge(0.55)) +
   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
-  labs(y = "κ") +
+  scale_color_manual(name = NULL, values = prior.col) +
+  labs(x = "Durações [h]", y = "κ") +
   theme(
-    legend.position = c(1, 0),
-    legend.justification = c(1, 0),
-    legend.margin = margin(5, 5, 1, 5),
+    legend.position = "bottom",
+    legend.margin = margin(0, 5, 1, 5),
     legend.key.size = unit(3, "mm"),
-    text = element_text(size = fontsize*0.8),
-    axis.title.x = element_blank(),
-    # axis.text.x = element_text(angle = 90, hjust = 1),
+    # text = element_text(size = fontsize*0.8),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
     strip.text = element_text(hjust = 0)
   ); shape.prof.plot
 
 ggsave(
-  "figuras/preliminares/subdiarios/ci_kappa_gev_gmle_prof_selected.png", shape.prof.plot, 
-  height = 6, width = 15, units = "cm", dpi = 300
+  "figuras/preliminares/subdiarios/ci_kappa_gev_gmle_rgmle_selected.png", shape.prof.plot,
+  width = 15, height = 8, units = "cm", dpi = 300
 )
+
+
+# Visualizar intervalos de confiança p/ kappa com POR DURAÇÃO
+# com estimativas com perfil de verossimilhança + priori GMLE (media 0 e -0.1) e RGMLE
+mod <- c("gmle_martins", "gmle", "rgmle")
+walk(1:3, function(i){
+
+  par.gev.df |> 
+    mutate(gauge_label = gauge.labels[gauge_code], prior_label = factor(prior.names[prior], prior.names)) |> 
+    filter(parname == "kappa", prior_label == prior.names[i + 1]) |> 
+    ggplot(aes(x = factor(d), y = par, color = prior_label)) +
+    facet_wrap(~factor(gauge_label, order.n), ncol = 4) +
+    geom_hline(yintercept = 0, color = "grey80", linewidth = 0.2) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0, linewidth = 0.2, alpha = 0.7, position = pos.width) +
+    geom_point(size = 0.15, position = position_dodge(0.55)) +
+    scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
+    scale_color_manual(name = NULL, values = prior.col) +
+    labs(x = "Durações [h]", y = "κ") +
+    theme(
+      legend.position = "none",
+      axis.title.x = element_blank(),
+      text = element_text(size = fontsize*0.8),
+      panel.border = element_rect(linewidth = 0.3, color = "black"),
+      panel.spacing.y = unit(2, "pt"),
+      strip.text = element_text(hjust = 0, size = fontsize*0.7, margin = margin(t = 3, b = 2))
+    )
+
+  message(mod[i])
+  ggsave(
+    sprintf("figuras/preliminares/subdiarios/ci_kappa_gev_prof_%s.png", mod[i]), 
+    width = 16, height = 22, units = "cm", dpi = 300
+  )
+
+})
+
+
 
 # Em que momento na estação A831 `select.gg[2]` kappa deixa de ser negativo
 par.gev.df |> 
@@ -906,6 +903,7 @@ par.gev.df |>
 
 # Visualizar intervalos de confiança para kappa com estimativas
 # do modelo de invariância de escala com perfil de verossimilhança
+
 pos.width <- position_dodge(0.8)
 par.dgev.df |> 
   filter(parname == "kappa") |> 
@@ -915,21 +913,26 @@ par.dgev.df |>
       select(gauge_code, n_years, gauge_label),
     by = "gauge_code"
   ) |> 
+  mutate(
+    id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
+    prior_label = factor(prior.names[prior], prior.names)
+  ) |>
+  filter(prior_label != prior.names[3]) |> # remover GMLE - B(0,0.122)
   # ggplot(aes(x = gauge_label, y = par)) +
-  ggplot(aes(x = fct_reorder(gauge_code, n_years), y = par, color = factor(model, which.model[c(1,3,2)]))) +
+  # ggplot(aes(x = fct_reorder(gauge_code, n_years), y = par, color = factor(model, which.model[c(1,3,2)]))) +
+  ggplot(aes(x = factor(id), y = par, color = prior_label)) +
   geom_hline(yintercept = c(-0.5, 0.5), linetype = "dashed", linewidth = 0.2, color = "grey60") +
   geom_hline(yintercept = 0, linetype = "solid", linewidth = 0.2, color = "grey60") +
   geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0, linewidth = 0.3, alpha = 0.7, position = pos.width) +
   geom_point(size = 0.15, position = pos.width) +
-  scale_color_manual(name = "", values = model.col, breaks = which.model[c(1,3,2)]) +
-  # labs(y = "H") +
-  labs(y = "κ") +
+  scale_color_manual(name = "", values = prior.col) +
+  labs(x = "ID", y = "κ") +
   theme(
-    legend.position = c(1, 0),
-    legend.justification = c(1, 0),
+    legend.position = c(0, 0),
+    legend.justification = c(0, 0),
     legend.margin = margin(5, 5, 1, 5),
     legend.key.size = unit(3, "mm"),
-    axis.title.x = element_blank(),
+    axis.title.x = element_text(margin = margin(t = 5)),
     axis.text.x = element_text(angle = 90, hjust = 1),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
     strip.text = element_text(hjust = 0)
@@ -1398,6 +1401,7 @@ freq.obs.all.df <- imax.df |>
   ) |> 
   ungroup()
 
+
 # Organizar os dados de `par.gev.df` e `par.dgev.df`
 # Combinar e simplificar a estrutura dos dois
 par.df <- bind_rows(
@@ -1408,14 +1412,17 @@ par.df <- bind_rows(
   group_by(gauge_code, model, d, prior) |> 
   reframe(par = list(setNames(par, parname))) # listar parâmetros
 
+
 # Falta ajustar a IDF propriamente dita do modelo sem invariância de escala
 # os quantis estimados são só as curvas, a equação em si ainda precisa ser calculada.
 duration.vec <- unique(imax.df$d)
+
 
 # Ajustar IDF-SGB c/ código Wilson
 # O script retorna o data.frame `idf.sgb.sf`
 source("R/fit_sgb_idf.R")
 idf.sgb.df <- idf.sgb.df |> select(gauge_code, k, gamma, b, c, dpma)
+
 
 # Estimativas de intensidade p/ frequências observadas
 freq.obs.sgb <- freq.obs.all.df |> 
@@ -1439,6 +1446,7 @@ performance.sgb.df <- freq.obs.sgb |>
     model = "IDF-SGB"    # atribuir nome ao modelo p/ combinar com outros depois
   )
 
+
 # Juntar frequências
 # Cada posição de plotagem deve ter 4 linhas, uma p/ cada priori
 performance.gev.df <- freq.obs.all.df |> 
@@ -1454,6 +1462,7 @@ performance.dgev.df <- freq.obs.all.df |>
     by = "gauge_code",
     relationship = "many-to-many"
   )
+
 
 # Juntar tudo de novo
 performance.df <- bind_rows(performance.gev.df, performance.dgev.df) |> 
@@ -1529,102 +1538,15 @@ performance.summary.df |>
     fill = guide_legend(order = 2),
   ); invisible(gc())
 
-# Gráfico barras GEV e d-GEV juntos
-performance.summary.df |> 
-  mutate(
-    prior_label = factor(prior, labels = prior.names),
-    model_prior = sprintf("%s__%s", model, prior_label),
-    model_prior = factor(model_prior, levels = c(
-      "GEV__MLE", "d-GEV__MLE",
-      "GEV__GMLE – B(-0.1, 0.122)", "d-GEV__GMLE – B(-0.1, 0.122)",
-      "GEV__GMLE – B(0, 0.122)", "d-GEV__GMLE – B(0, 0.122)",
-      "GEV__RGMLE – B(0.0178, 0.0627)", "d-GEV__RGMLE – B(0.0178, 0.0627)"
-    ))
-  ) |> 
-  select(gauge_code, d, plot_pos, model_prior, r_rmse, r_bias) |> 
-  filter(
-    plot_pos == "weibull",
-    d %in% c(1, 6, 12, 24)
-  ) |> 
-  ggplot(aes(
-    x = fct_reorder(gauge_code, r_rmse, .desc = TRUE), y = r_rmse, 
-    fill = model_prior, color = model_prior, alpha = model_prior
-  )) +
-  facet_wrap(~factor(d), ncol = 1, scales = "free_y", labeller = as_labeller(function(x) sprintf("Duração: %s h", x))) +
-  geom_col(position = pos, width = width, linewidth = 0) +
-  coord_cartesian(ylim = c(0, 0.6)) +
-  labs(y = "rRMSE") +
-  scale_alpha_manual(
-    values = c(
-      "GEV__RGMLE – B(0.0178, 0.0627)" = 0.5, 
-      "d-GEV__RGMLE – B(0.0178, 0.0627)" = 1.0, 
-      "GEV__MLE" = 0.5, 
-      "d-GEV__MLE" = 1.0,
-      "GEV__GMLE – B(-0.1, 0.122)" = 0.5,
-      "d-GEV__GMLE – B(-0.1, 0.122)" = 1.0,
-      "GEV__GMLE – B(0, 0.122)" = 0.5, 
-      "d-GEV__GMLE – B(0, 0.122)" = 1.0
-    ),
-    guide = "none"
-  ) +
-  scale_fill_manual(
-    name = "d-GEV", 
-    values = c(
-      "GEV__RGMLE – B(0.0178, 0.0627)" = col[4],
-      "d-GEV__RGMLE – B(0.0178, 0.0627)" = col[4], 
-      "GEV__MLE" = col[1], "d-GEV__MLE" = col[1],
-      "GEV__GMLE – B(-0.1, 0.122)" = col[2],
-      "d-GEV__GMLE – B(-0.1, 0.122)" = col[2],
-      "GEV__GMLE – B(0, 0.122)" = col[3], 
-      "d-GEV__GMLE – B(0, 0.122)" = col[3]
-    ),
-    breaks = c("d-GEV__MLE", "d-GEV__GMLE – B(-0.1, 0.122)", "d-GEV__GMLE – B(0, 0.122)", "d-GEV__RGMLE – B(0.0178, 0.0627)"),
-    labels = c("MLE", "GMLE – B(-0.1, 0.122)", "GMLE – B(0, 0.122)", "RGMLE – B(0.0178, 0.0627)"),
-    guide = guide_legend(
-      order = 2
-    )
-  ) +
-  scale_color_manual(
-    name = "GEV", 
-    values = c(
-      "GEV__RGMLE – B(0.0178, 0.0627)" = col[4], 
-      "d-GEV__RGMLE – B(0.0178, 0.0627)" = col[4], 
-      "GEV__MLE" = col[1], "d-GEV__MLE" = col[1],
-      "GEV__GMLE – B(-0.1, 0.122)" = col[2],
-      "d-GEV__GMLE – B(-0.1, 0.122)" = col[2],
-      "GEV__GMLE – B(0, 0.122)" = col[3], 
-      "d-GEV__GMLE – B(0, 0.122)" = col[3]
-    ),
-    breaks = c("GEV__MLE", "GEV__GMLE – B(-0.1, 0.122)", "GEV__GMLE – B(0, 0.122)", "GEV__RGMLE – B(0.0178, 0.0627)"),
-    labels = c("MLE", "GMLE – B(-0.1, 0.122)", "GMLE – B(0, 0.122)", "RGMLE – B(0.0178, 0.0627)"),
-    guide = guide_legend(
-      order = 1, override.aes = list(
-        fill = c(
-          "GEV__MLE" = col[1], "GEV__GMLE – B(-0.1, 0.122)" = col[2], 
-          "GEV__GMLE – B(0, 0.122)" = col[3], "GEV__RGMLE – B(0.0178, 0.0627)" = col[4]
-        ),
-        alpha = 0.6
-      )
-    )
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = fontsize*0.8),
-    axis.title.x = element_blank(),
-    panel.grid.major.y = element_line(linewidth = 0.2, linetype = "dashed", color = "grey70"),
-    legend.box = "vertical",
-    legend.spacing.y = unit(0, "pt"),
-    legend.margin = margin(t = 2)
-  ); invisible(gc())
 
-ggsave("figuras/preliminares/subdiarios/metricas_rrmse_weibull.png", width = 15.5, height = 20, units = "cm", dpi = 300)
+# Boxplots
 
-
-# Boxplot
 models <- unique(performance.summary.df$model_label)
 sgb.col <- "grey50"
 which.position <- "weibull"
 
 # Comparar modelos com e sem distribuição a priori
+durations.metrics <- c(1, 3, 6, 9, 12, 18, 24)
 
 # Quantas observações acima de um limite
 lim.rmse <- 0.7
@@ -1633,7 +1555,7 @@ outliers.rmse <- performance.summary.df |>
     plot_pos == which.position,
     r_rmse > lim.rmse,                   # selecionar 
     model_label %in% models[c(1, 2, 3, 4)], # escolher modelos
-    d %in% c(1, 3, 6, 9, 12, 18, 24)
+    d %in% durations.metrics
   ) |> 
   mutate(
     id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
@@ -1654,7 +1576,7 @@ performance.boxplot <- performance.summary.df |>
   filter(
     plot_pos == which.position,
     model_label %in% models[c(1, 2, 5, 6)],
-    d %in% c(1, 3, 6, 9, 12, 18, 24)
+    d %in% durations.metrics
   ) |> 
   mutate(
     d = fct_reorder(paste(d, "h"), d),
@@ -1711,7 +1633,6 @@ ggsave("figuras/preliminares/subdiarios/boxplot_rmse_gev.png", performance.boxpl
 
 # Comparar com boxplots as estimativas com a GEV ajustada por duração e a d-GEV
 # com diferentes níveis de informação adicional e também com IDF-SGB
-which.position <- "weibull"
 
 # Quantas observações acima de um limite
 lim.rmse <- 1
@@ -1720,7 +1641,7 @@ outliers.rmse <- performance.summary.df |> # se não for mostrar a GEV, não pre
     plot_pos == which.position,
     r_rmse > lim.rmse,
     model_label %in% models[c(2, 6, 7)],
-    d %in% c(1, 3, 6, 9, 12, 18, 24)
+    d %in% durations.metrics
   ) |> 
   mutate(
     id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
@@ -1742,7 +1663,7 @@ rmse.boxplot <- performance.summary.df |>
   filter(
     plot_pos == which.position,
     model_label %in% models[c(2, 6, 7)],
-    d %in% c(1, 3, 6, 9, 12, 18, 24)
+    d %in% durations.metrics
   ) |> 
   mutate(
     d = fct_reorder(paste(d, "h"), d),
@@ -1753,6 +1674,10 @@ rmse.boxplot <- performance.summary.df |>
   geom_boxplot(
     linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
     outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = width
+  ) +
+  annotate(
+    geom = "text_npc", label = "Modelo de referência:\nIntensidades observadas (Weibull)", npcx = 0.02, npcy = 0.85, vjust = 1.2,
+    family = font, size = textsize
   ) +
   scale_fill_manual(
     name = NULL, 
@@ -1772,13 +1697,9 @@ rmse.boxplot <- performance.summary.df |>
   ); rmse.boxplot
 
 ggsave("figuras/preliminares/subdiarios/boxplot_rmse.png", rmse.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
-# ggsave(
-#   sprintf("figuras/preliminares/subdiarios/analise_pos_plot/boxplot_rmse_%s.png", which.position), rmse.boxplot, 
-#   width = 15, height = 10, units = "cm", dpi = 300
-# )
 
 
-#### Informações complementares ##########################################
+### Informações complementares -------------------------------------------
 
 # Mediana do rRMSE p/ diferentes durações
 performance.summary.df |> 
@@ -1810,18 +1731,18 @@ performance.summary.df |>
     .groups = "drop"
   ) |> print(n = 24)
 
-# 
-
 idf.sgb.df[idf.sgb.df$gauge_code == "432260802A",]
+
+# ------------------------------------------------------------------------
 
 # BIAS relativo
 lim.bias <- 5.3
-outliers.bias <- performance.summary.df |> 
+outliers.bias <- performance.summary.df |>
   filter(
     plot_pos == which.position,
     r_bias > lim.bias | r_bias < -lim.bias,
     model_label %in% models[c(7, 2, 6)],
-    d %in% c(1, 3, 6, 9, 12, 18, 24)
+    d %in% durations.metrics
   ) |> 
   mutate(
     id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
@@ -1854,6 +1775,10 @@ bias.boxplot <- performance.summary.df |>
     linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
     outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = width
   ) +
+  annotate(
+    geom = "text_npc", label = "Modelo de referência:\nIntensidades observadas (Weibull)", npcx = 0.02, npcy = 0.85, vjust = 1.2,
+    family = font, size = textsize
+  ) +
   scale_fill_manual(
     name = NULL, 
     values = setNames(c(sgb.col, prior.col[c(1, 4)]), models[c(7, 2, 6)]),
@@ -1872,6 +1797,200 @@ bias.boxplot <- performance.summary.df |>
 
 ggsave("figuras/preliminares/subdiarios/boxplot_bias.png", bias.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
+
+### Comparação entre quantis da GEV (RGMLE) e estimativas da d-GEV -------
+
+# Recalcular métricas rRMSE e rBIAS, mas agora para tempos de retorno maiores
+# usando os quantis da GEV (RGMLE) por duração como os "observados"
+
+priors <- unique(par.df$prior)
+high.rp <- unique(idf.gev.df$return_period)
+
+
+# Estimativa dos parâmetros da GEV com L-momentos
+# par.gev.lmom <- imax.df |> 
+#   mutate(duration_min = d*60) |> 
+#   group_by(gauge_code, d, duration_min) |> 
+#   summarise(par = map(list(imax), start.gev), .groups = "drop") |> 
+#   unnest_wider(par)
+
+# Estimativa dos quantis da GEV com L-mmomenntos
+# idf.lmom <- imax.df |> 
+#   mutate(duration_min = d*60) |> 
+#   group_by(gauge_code, d, duration_min) |> 
+#   group_modify(~fgev.lmom(.x$imax, rp)) |> # group_modify usa tbl_df como entrada
+#   ungroup()
+
+idf.lmom <- idf.lmom |> 
+  rename(q = intensity)
+
+rp <- c(10, 20, 50, 100)
+
+# Juntar `idf.gev.df` e `idf.dgev.df`
+performance.high.rp <- idf.gev.df |> 
+  filter(return_period %in% rp, prior == priors[4]) |> 
+  select(gauge_code, d, return_period, q) |> # não selecionar coluna `prior`
+  rename(q_gev = q) |> 
+  left_join(
+    idf.dgev.df |> select(gauge_code, d, return_period, prior, q) |> rename(q_dgev = q),
+    by = c("gauge_code", "d", "return_period")
+  ) |> 
+  left_join(
+    idf.sgb.df |> select(-dpma),
+    by = c("gauge_code")
+  ) |> 
+  rowwise() |> 
+  mutate(
+    q_sgb = idf.sgb(par = c(k, gamma, c, b), return.period = return_period, duration = d*60)
+  ) |> 
+  ungroup() |> 
+  select(-c(k, gamma, c, b)) |> 
+  pivot_longer(
+    cols = -c(gauge_code, d, return_period, prior, q_gev),
+    names_to = "model",
+    names_prefix = "q_",
+    values_to = "q_model"
+  ) |> 
+  filter(prior %in% priors[c(1, 4)])|> 
+  mutate(
+    residual = q_gev - q_model,
+    model_label = tolower(paste0(model, "_", gsub(" .*", "", prior.names[prior])))
+  ) |> 
+  group_by(gauge_code, d, model_label) |> 
+  summarise(
+    r_rmse = sqrt(n()*sum(residual/sum(q_gev, na.rm = TRUE))^2),
+    r_bias = n()*sum(residual/sum(q_gev, na.rm = TRUE)),
+    .groups = "drop"
+  ) |> 
+  filter(model_label != "sgb_mle") |> # só precisa manter 1 modelo sgb, pq são iguais
+  mutate(model_label = if_else(model_label == "sgb_rgmle", "sgb", model_label))
+
+
+# Cores
+high.rp.models <- unique(performance.high.rp$model_label)[c(3,1,2)]
+high.rp.models <- factor(high.rp.models, high.rp.models)
+
+# Outliers --- rRMSE
+lim.rmse <- 1.5 # corta alguns outliers do modelo d-GEV (MLE)
+outliers.rmse <- performance.high.rp |> 
+  filter(
+    r_rmse > lim.rmse,
+    d %in% durations.metrics
+  ) |> 
+  mutate(
+    id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
+    d = fct_reorder(paste(d, "h"), d)
+  ) |> 
+  arrange(id) |> 
+  group_by(d, model_label) |> 
+  summarise(
+    min_r_rmse = min(r_rmse),
+    string = sprintf("[%s]", paste(id, collapse = ",")),
+    .groups = "drop"
+  )
+
+width <- 0.8
+
+# rRMSE
+boxplot.high.rp.rmse <- performance.high.rp |> 
+  filter(d %in% durations.metrics) |> 
+  mutate(
+    d = fct_reorder(paste(d, "h"), d)
+  ) |> 
+  ggplot(aes(x = d, y = r_rmse, fill = factor(model_label, high.rp.models))) +
+  geom_boxplot(
+    linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
+    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = width
+  ) +
+  geom_text(
+    aes(x = d, y = lim.rmse, label = string), outliers.rmse, inherit.aes = FALSE,
+    family = font, size = textsize*0.8
+  ) +
+  annotate(
+    geom = "text_npc", label = "Modelo de referência: GEV (RGMLE)", npcx = 0.98, npcy = 0.93, vjust = 1.2,
+    family = font, size = textsize
+  ) +
+  coord_cartesian(ylim = c(0, lim.rmse)) +
+  scale_fill_manual(
+    name = NULL, values = setNames(c(sgb.col, prior.col[c(1, 4)]), high.rp.models),
+    labels = c("IDF-SGB", "d-GEV (MLE)", "d-GEV (RGMLE)")
+  ) +
+  labs(x = NULL, y = "rRMSE") +
+  theme(
+    legend.position = c(0.01, 0.93),
+    legend.justification = c(0, 1),
+    legend.spacing.y = unit(-5, "pt"),
+    legend.key.spacing.y = unit(1, "pt"),
+    legend.title.position = "top",
+    panel.grid.major.y = element_line(linewidth = 0.2, linetype = "solid", color = "grey90"),
+    legend.title = element_text(margin = margin(b = 1), hjust = 0)
+  ); boxplot.high.rp.rmse
+
+ggsave(
+  "figuras/preliminares/subdiarios/boxplot_rmse_maiores_trs_lmom.png", boxplot.high.rp.rmse,
+  width = 15, height = 10, units = "cm", dpi = 300
+  )
+
+
+# Outliers --- rBIAS
+lim.bias <- 3 # só d-GEV (MLE)
+outliers.bias <- performance.high.rp |> 
+  filter(
+    r_bias > lim.bias | r_bias < -lim.bias,
+    d %in% durations.metrics
+  ) |> 
+  mutate(
+    id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)],
+    d = fct_reorder(paste(d, "h"), d)
+  ) |> 
+  arrange(id) |> 
+  group_by(d) |>  # não precisa agrupar por modelo, só quando quiser saber qual que é, mas nesse caso são todos d-GEV (MLE)
+  summarise(
+    min_r_bias = min(r_bias), max_r_bias = max(r_bias),
+    string_pos = sprintf("[%s]", paste(id[r_bias > 0], collapse = ",")),
+    string_neg = sprintf("[%s]", paste(id[r_bias < 0], collapse = ",")),
+    .groups = "drop"
+  )
+
+# rBIAS
+boxplot.high.rp.bias <- performance.high.rp |> 
+  filter(d %in% durations.metrics) |> 
+  mutate(
+    d = fct_reorder(paste(d, "h"), d)
+  ) |> 
+  ggplot(aes(x = d, y = r_bias, fill = factor(model_label, high.rp.models))) +
+  geom_boxplot(
+    linewidth = 0.2, median.linewidth = 0.2, staplewidth = 0.5, whisker.linetype = "dashed", whisker.linewidth = 0.2,
+    outlier.size = 0.5, outlier.alpha = 0.5, key_glyph = "rect", width = width
+  ) +
+  geom_text(
+    aes(x = d, y = -lim.bias, label = string_neg), outliers.bias, inherit.aes = FALSE,
+    family = font, size = textsize*0.8
+  ) +
+  annotate(
+    geom = "text_npc", label = "Modelo de referência: GEV (RGMLE)", npcx = 0.98, npcy = 0.975, vjust = 1.2,
+    family = font, size = textsize
+  ) +
+  coord_cartesian(ylim = c(-lim.bias, lim.bias)) +
+  scale_fill_manual(
+    name = NULL, values = setNames(c(sgb.col, prior.col[c(1, 4)]), high.rp.models),
+    labels = c("IDF-SGB", "d-GEV (MLE)", "d-GEV (RGMLE)")
+  ) +
+  labs(x = NULL, y = "rBIAS") +
+  theme(
+    legend.position = c(0.01, 0.975),
+    legend.justification = c(0, 1),
+    legend.spacing.y = unit(-5, "pt"),
+    legend.key.spacing.y = unit(1, "pt"),
+    legend.title.position = "top",
+    panel.grid.major.y = element_line(linewidth = 0.2, linetype = "solid", color = "grey90"),
+    legend.title = element_text(margin = margin(b = 1), hjust = 0)
+  ); boxplot.high.rp.bias
+
+ggsave(
+  "figuras/preliminares/subdiarios/boxplot_bias_maiores_trs.png", boxplot.high.rp.bias,
+  width = 15, height = 10, units = "cm", dpi = 300
+  )
 
 
 # ------------------------------------------------------------------------
