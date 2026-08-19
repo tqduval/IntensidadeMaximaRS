@@ -657,6 +657,66 @@ ggsave("figuras/preliminares/ratios_d_boxplot.png", ratios.d.plot, height = 10, 
 #   geom_boxplot()
 
 
+# TABELA ESTATÍSTICAS BÁSICAS --------------------------------------------
+
+# Função que calcula a tabela resumo igual Papalexiou e Koutsoyiannis (2013)
+# Originalmente summary.stats
+get.stats <- function(x){
+  gg.stats <- c(
+    n_years = length(x),
+    mean = mean(x, na.rm = TRUE),
+    p0 = sum(x == 0)/length(x),
+    median = median(x, na.rm = TRUE),
+    sd = sd(x, na.rm = TRUE),
+    t3 = lmom::samlmu(x)[[3]],
+    t4 = lmom::samlmu(x)[[4]]
+  )
+}
+
+# Originalmente fun.estat.bas
+summary.stats <- function(x){
+  c(
+    "Mínimo" = min(x, na.rm = TRUE),
+    "$Q_5$" = quantile(x, 0.05, na.rm = TRUE),
+    "$Q_{25}$" = quantile(x, 0.25, na.rm = TRUE),
+    "$Q_{50}$" = median(x, na.rm = TRUE),
+    "$Q_{75}$" = quantile(x, 0.75, na.rm = TRUE),
+    "$Q_{95}$" = quantile(x, 0.95, na.rm = TRUE),
+    "Máximo" = max(x, na.rm = TRUE),
+    "Média" = mean(x, na.rm = TRUE),
+    "Assimetria" = moments::skewness(x, na.rm = TRUE)
+  )
+}
+
+table.duration <- c(1, 6, 12, 24)
+
+# Estatísticas básicas
+# Aplicar resumo por estação e duração
+stats.df <- imax.df |> 
+  filter(d %in% table.duration) |> 
+  group_by(gauge_code, d) |> 
+  group_modify(~as.data.frame(t(get.stats(.x$imax)))) |> # group_modify requer que o retorno seja um data.frame
+  ungroup() |> 
+  select(-p0)
+
+# Aplicar resumo por estatísticas
+stats.table <- stats.df |> 
+  pivot_longer(cols = -c(gauge_code, d), names_to = "statistic", values_to = "value") |> 
+  group_by(d, statistic) |> 
+  summarise(across(value, ~list(summary.stats(.x))), .groups = "drop") |> # dá pra usar o group_modify tambem
+  unnest_wider(value) |> 
+  pivot_longer(cols = -c(d, statistic), names_to = "summary_stat", values_to = "value") |> 
+  pivot_wider(id_cols = c(d, summary_stat), names_from = statistic, values_from = value) |> 
+  relocate(d, .after = last_col()) |> 
+  mutate(summary_stat = gsub("\\$[^\\$]*$", "$", summary_stat)) |> 
+  print()
+
+nrow.d <- n_distinct(stats.table$summary_stat)
+
+# PROCURAR SUBTABLES
+
+
+
 ## DIAGRAMA DE L-MOMENTOS ------------------------------------------------
 
 # Plotar o diagrama, mas somente as cores das "durações de referência" em `durations`

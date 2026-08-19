@@ -108,7 +108,7 @@ quality.df <- imax.df |>
   mutate(responsible = info.df$responsible[match(gauge_code, info.df$gauge_code)]) |> 
   select(gauge_code, responsible, wateryear, na_prct_yr) |> 
   group_by(gauge_code, responsible, wateryear) |> 
-  summarise(na_prct = first(na_prct_yr)*100)
+  summarise(na_prct = first(na_prct_yr)*100, .groups = "drop")
 
 thresholds <- seq(10, 40, 10)
 min.years <- seq_len(10)
@@ -148,15 +148,22 @@ ggplot2::set_theme(
 )
 
 color <- c("green4", "lightgreen", "orange", "#f10000")
+min.years <- 8
+na.accept <- 20
 anos.estacao.plot <- grid |> 
-  mutate(threshold = factor(threshold, levels = thresholds)) |> 
-  ggplot(aes(x = min_years, y = n_gauges, fill = threshold)) +
+  mutate(
+    threshold = factor(threshold, levels = thresholds),
+    fill = if_else(min_years == min.years & threshold == na.accept, "escolhido", NA_character_)
+  ) |> 
+  ggplot(aes(x = min_years, y = n_gauges, fill = fill)) +
   facet_wrap(~threshold, nrow = 4, labeller = labeller(threshold = function(x) paste0(x, "% falhas"))) +
-  geom_col(show.legend = FALSE) +
-  geom_text(aes(label = n_gauges), vjust = -0.3, size = textsize, family = font) +
+  geom_col(color = "black", show.legend = FALSE, linewidth = 0.2, width = 0.8) +
+  geom_text(aes(label = if_else(!is.na(fill), "▼", "")), vjust = -1.2, size = 3.5, color = "grey10") +
+  geom_text(aes(label = n_gauges), vjust = -0.5, size = textsize*1.05, family = font) +
   scale_x_continuous(breaks = seq(min(grid$min_years), max(grid$min_years), by = 1)) +
   scale_y_continuous(limits = c(0, max(grid$n_gauges) + 50)) +
-  scale_fill_manual(values = color) +
+  # scale_fill_manual(values = color) +
+  scale_fill_manual(values = "grey10", na.value = "grey90") +
   labs(x = "Número de anos por estação",y = "Número de estações"); anos.estacao.plot
 
 ggsave("figuras/preliminares/plot_anos_estacao.png", anos.estacao.plot, width = 15, height = 15, units = "cm", dpi = 300)

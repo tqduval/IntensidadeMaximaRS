@@ -309,6 +309,7 @@ pmax.wide <- pmax.df |>
   column_to_rownames("year") |> 
   as.matrix()
 
+# Ajustar a GEV com L-momentos
 fit <- apply(pmax.wide, 2, flmom); invisible(gc())
 
 fit.df <- t(fit) |>
@@ -316,8 +317,9 @@ fit.df <- t(fit) |>
   rownames_to_column(var = "gauge_code")
 
 
-# VISUALIZAR -------------------------------------------------------------
+## VISUALIZAR KAPPA LMOM POR N SÉRIE -------------------------------------
 
+# Boxplot de `kappa` estimado com L-momentos
 fit.plot <- fit.df |> 
   left_join(
     info.df |> 
@@ -391,7 +393,146 @@ map.boxplot.nyr.kappa <-
 ggsave("figuras/preliminares/diarios/map_boxplot_nyr.png", map.boxplot.nyr.kappa, width = 14, height = 7.5, units = "cm", dpi = 300)
 
 
-## ISOIETAS --------------------------------------------------------------
+
+## DIAGRAMA DE RAZÕES DE L-MOMENTOS --------------------------------------
+
+# Razões amostrais
+ratios.sam <- pmax.df |> 
+  group_by(gauge_code) |> 
+  summarise(
+    origem = "Amostrais",
+    t3 = lmom::samlmu(peak_24h)[[3]],
+    t4 = lmom::samlmu(peak_24h)[[4]],
+    n_years = length(peak_24h),
+    record = cut(
+      n_years, breaks = breaks, 
+      right = FALSE, include.lowest = TRUE
+    ),
+    .groups = "drop"
+  ) |> 
+  arrange(n_years)
+
+# Média amostral
+ratios.av <- tibble(
+  origem = "Média",
+  t3 = mean(ratios.sam$t3, na.rm = TRUE),
+  t4 = mean(ratios.sam$t4, na.rm = TRUE)
+)
+
+# Razões teóricas --- Gumbel
+ratios.gum <- tibble(
+  origem = "Gumbel",
+  t3 = 0.1699,
+  t4 = 0.1504
+)
+
+# Razões teóricas --- GEV
+ratios.gev <- tibble(kappa = seq(-0.4, 0.45, 0.001)) |> 
+  mutate(
+    origem = "GEV",
+    t3 = 2*(1 - 3^(-kappa))/(1 - 2^(-kappa)) - 3,
+    t4 = (1 - 6*2^(-kappa) + 10*3^(-kappa) - 5*4^(-kappa))/(1 - 2^(-kappa))
+  )
+
+
+# Juntar todo mundo
+ratios <- bind_rows(ratios.sam, ratios.av, ratios.gum, ratios.gev)
+ratio.names <- unique(ratios$origem)
+col <- c("grey", "red2", "darkorange2", "black")
+shapes <- c(16, 16, 17, NA)
+ratio.colors <- setNames(col, ratio.names)
+ratio.shapes <- setNames(shapes, ratio.names)
+ratio.alpha <- setNames(c(0.5, 1, 1, 1, 1), ratio.names)
+
+# Plotar diagrama --- única nuvem de pontos
+ratios |> 
+  ggplot(aes(x = t3, y = t4, shape = origem, color = origem, alpha = origem)) +
+  geom_line(data = ~filter(., origem == "GEV"), linewidth = 0.5) +     # gev
+  geom_point(data = ~filter(., origem %in% c("Amostrais", "Média"))) + # pontos amostrais e média
+  geom_point(data = ~filter(., origem == "Gumbel"), size = 2) +        # gumbel
+  scale_color_manual(name = NULL, values = ratio.colors, limits = ratio.names) +
+  scale_shape_manual(name = NULL, values = ratio.shapes, limits = ratio.names) +
+  scale_alpha_manual(name = NULL, values = ratio.alpha, limits = ratio.names) +
+  labs(x = "L-assimetria", y = "L-curtose") +
+  theme(
+    legend.position = c(0,0.99), legend.justification = c(0,1)
+  )
+ 
+range.kt <- range(ratios$t4, na.rm = TRUE)
+
+# Plotar diagrama --- cores por tamanho das séries
+gu.col <- "orange2"
+av.col <- "red"
+ratio.diagram.plot <- ggplot(mapping = aes(x = t3, y = t4)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
+  geom_hline(yintercept = ratios.gum$t4, linewidth = 0.2, color = "orange2", linetype = "dashed") +
+  geom_line(aes(linetype = "GEV"), ratios.gev, linewidth = 0.5, color = "grey10") +
+  geom_point(aes(color = record), ratios.sam, alpha = 0.8, size = 0.8, key_glyph = "rect") +
+  geom_point(aes(shape = "Média"), ratios.av, color = av.col, size = 2) +
+  geom_point(aes(shape = "Gumbel"), ratios.gum, color = gu.col, size = 2) +
+  scale_color_manual(name = "N [anos]", values = yr.col) +
+  scale_shape_manual(name = NULL, values = c(17, 16)) +
+  scale_linetype_manual(name = NULL, values = "solid") +
+  coord_cartesian(ylim = range.kt) +
+  labs(x = "L-assimetria", y = "L-curtose") +
+  theme(
+    legend.position = c(0, 0.99), legend.justification = c(0,1),
+    legend.title = element_text(size = fontsize*0.8),
+    legend.spacing.y = unit(-2, "pt")
+  ); ratio.diagram.plot
+
+# Boxplot L-curtose por faixa de duração
+ratios.boxplot.nyr <- ratios.sam |> 
+  ggplot(aes(x = record, y = t4, fill = record)) +
+  # geom_jitter(color = "grey90", alpha = 0.5) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
+  geom_hline(yintercept = ratios.gum$t4, linewidth = 0.2, color = "orange2", linetype = "dashed") +
+  geom_boxplot(
+    color = "black", median.linewidth = 0.2, staplewidth = 0.5, linewidth = 0.2,
+    whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5,
+    show.legend = FALSE
+  ) +
+  scale_fill_manual(name = NULL, values = yr.col) +
+  coord_cartesian(ylim = range.kt) +
+  labs(x = "N [anos]") +
+  theme(
+    axis.title.y = element_blank(),
+    axis.title.x = element_text(margin = margin(t = 2)),
+    legend.position = "none",
+    plot.margin = margin(l = 5.5)
+  ); ratios.boxplot.nyr
+
+# Juntar todo mundo
+ratios.plot <- 
+  wrap_plots(ratio.diagram.plot + labs(subtitle = "(a)")) +
+  wrap_plots(ratios.boxplot.nyr + labs(subtitle = "(b)")) +
+  plot_layout(widths = c(1, 0.8)); ratios.plot
+
+ggsave(
+  "figuras/preliminares/diarios/diagrama_lmomentos.png", ratios.plot, 
+  width = 15, height = 8, units = "cm", dpi = 300
+)
+
+
+### Informações adicionais -----------------------------------------------
+
+# Número de estações com L-curtose menor que a da Gumbel
+ratios.sam |>
+  count(t4 <= ratios.gum$t4) |> 
+  mutate(prop = n/sum(n)*100)
+
+# L-curtose de séries com mais de 80 anos
+ratios.sam |> 
+  filter(t4 >= ratios.gum$t4, n_years >= 80) |> 
+  mutate(id = info.df$id[match(gauge_code, info.df$gauge_code)])
+
+
+# ------------------------------------------------------------------------
+
+
+
+
+# ISOIETAS ---------------------------------------------------------------
 
 isoietas.pma.rs.sf <- st_intersection(isoietas.pma.sf, rs.sf)
 isoietas.xyz <- st_coordinates(isoietas.pma.rs.sf)
