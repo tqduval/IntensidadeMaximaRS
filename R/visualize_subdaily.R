@@ -709,12 +709,46 @@ stats.table <- stats.df |>
   pivot_wider(id_cols = c(d, summary_stat), names_from = statistic, values_from = value) |> 
   relocate(d, .after = last_col()) |> 
   mutate(summary_stat = gsub("\\$[^\\$]*$", "$", summary_stat)) |> 
-  print()
-
+  rename(
+    " " = summary_stat,
+    "$N$" = n_years,
+    "Média" = mean,
+    "Mediana" = median,
+    "$SD$" = sd,
+    "$\\hat\\tau_3$" = t3,
+    "$\\hat\\tau_4$" = t4
+  )
+  
+ncol.d <- n_distinct(stats.table$` `)
 nrow.d <- n_distinct(stats.table$summary_stat)
 
-# PROCURAR SUBTABLES
+table.ls <- as.list(seq(0,  nrow(stats.table) - 1, by = ncol.d))
+ltx.cmd <- sapply(unique(stats.table$d), function(dur){
+  sprintf("\\midrule \\multicolumn{%d}{c}{\\textbf{Duração: %g h}} \\\\ \\midrule\n", ncol(stats.table) - 1, dur)
+})
 
+stats.xtable <- stats.table |> 
+  select(-d) |> 
+  xtable::xtable(
+    caption = "Estatísticas básicas do conjunto de séries de intensidades máximas anuais para durações 1, 6, 12 e 24 h.",
+    label = "tab_estatistias_subdiarias",
+    align = c("l", "l", rep("c", ncol(stats.table) - 2)),
+    digits = 3
+  )
+
+stats.string <- print(
+  stats.xtable,
+  type = "latex",
+  include.rownames = FALSE,
+  caption.placement = "top",
+  sanitize.colnames.function = identify,
+  sanitize.text.function = identify,
+  hline.after = c(-1, nrow(stats.table)),
+  add.to.row = list(pos = table.ls, command = ltx.cmd)
+)
+
+
+# Gerar 4 xtables
 
 
 ## DIAGRAMA DE L-MOMENTOS ------------------------------------------------
