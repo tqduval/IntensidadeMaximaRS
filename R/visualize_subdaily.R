@@ -709,6 +709,7 @@ stats.table <- stats.df |>
   pivot_wider(id_cols = c(d, summary_stat), names_from = statistic, values_from = value) |> 
   relocate(d, .after = last_col()) |> 
   mutate(summary_stat = gsub("\\$[^\\$]*$", "$", summary_stat)) |> 
+  select(summary_stat, n_years, mean, median, sd, t3, t4, d) |> 
   rename(
     " " = summary_stat,
     "$N$" = n_years,
@@ -720,14 +721,15 @@ stats.table <- stats.df |>
   )
   
 ncol.d <- n_distinct(stats.table$` `)
-nrow.d <- n_distinct(stats.table$summary_stat)
+nrow.d <- n_distinct(stats.table$` `)
 
 table.ls <- as.list(seq(0,  nrow(stats.table) - 1, by = ncol.d))
 ltx.cmd <- sapply(unique(stats.table$d), function(dur){
-  sprintf("\\midrule \\multicolumn{%d}{c}{\\textbf{Duração: %g h}} \\\\ \\midrule\n", ncol(stats.table) - 1, dur)
+  sprintf("\\hline \\multicolumn{%d}{c}{\\textbf{Duração: %g h}} \\\\ \\hline\n", ncol(stats.table) - 1, dur)
 })
 
 stats.xtable <- stats.table |> 
+  # relocate(d, .after = 1) |> 
   select(-d) |> 
   xtable::xtable(
     caption = "Estatísticas básicas do conjunto de séries de intensidades máximas anuais para durações 1, 6, 12 e 24 h.",
@@ -741,17 +743,163 @@ stats.string <- print(
   type = "latex",
   include.rownames = FALSE,
   caption.placement = "top",
-  sanitize.colnames.function = identify,
-  sanitize.text.function = identify,
+  sanitize.colnames.function = identity,
+  sanitize.text.function = identity,
   hline.after = c(-1, nrow(stats.table)),
   add.to.row = list(pos = table.ls, command = ltx.cmd)
 )
 
+cat(
+  "\\begingroup\n\\footnotesize\n",
+  stats.string,
+  "\\endgroup\n",
+  file = "tabelas/5_estatisticas_basicas_subdiarios.txt",
+  sep = ""
+)
 
-# Gerar 4 xtables
+
+### Informações complementares -------------------------------------------
+
+# Número de estações c/ N <= 8 e 9 anos
+stats.df |> slice_min(d) |> count(n_years == 8) |> mutate(prop = n/(sum(n)))
+stats.df |> slice_min(d) |> count(n_years <= 9) |> mutate(prop = n/(sum(n)))
+stats.df |> slice_min(d) |> count(n_years == 13) |> mutate(prop = n/(sum(n)))
 
 
-## DIAGRAMA DE L-MOMENTOS ------------------------------------------------
+
+## DIAGRAMA DE L-MOMENTOS POR TAMANHO DAS SÉRIES -------------------------
+
+n.breaks <- 3
+n.years <- info.df |>
+  mutate(n_years = imax.df$n_years[match(gauge_code, imax.df$gauge_code)]) |> 
+  pull(n_years) |> 
+  sort(decreasing = TRUE)
+
+probs <- seq(0, 1, length.out = n.breaks + 1)
+# breaks <- quantile(n.years, probs, type = 1, names = FALSE) # type = 1 garante valores inteiros
+breaks <- c(8,9,12,19)
+yr.interval <- cut(n.years, breaks, right = FALSE, include.lowest = TRUE)
+
+# Razões amostrais por duração
+ratios.sam <- imax.df |> 
+  filter(d %in% table.duration) |> 
+  group_by(gauge_code, d) |> 
+  summarise(
+    origem = "Amostrais",
+    t3 = lmom::samlmu(imax)[[3]],
+    t4 = lmom::samlmu(imax)[[4]],
+    n_years = first(n_years),
+    record = cut(
+      n_years, breaks = breaks, 
+      right = FALSE, include.lowest = TRUE
+    ),
+    .groups = "drop"
+  ) |> 
+  arrange(n_years)
+
+# Média amostral por duração
+ratios.av <- tibble(
+  origem = "Média",
+  t3 = mean(ratios.sam$t3, na.rm = TRUE),
+  t4 = mean(ratios.sam$t4, na.rm = TRUE)
+)
+
+# Razões teóricas --- Gumbel
+ratios.gum <- tibble(
+  origem = "Gumbel",
+  t3 = 0.1699,
+  t4 = 0.1504
+)
+
+# Razões teóricas --- GEV
+ratios.gev <- tibble(kappa = seq(-0.6, 0.6, 0.001)) |> 
+  mutate(
+    origem = "GEV",
+    t3 = 2*(1 - 3^(-kappa))/(1 - 2^(-kappa)) - 3,
+    t4 = (1 - 6*2^(-kappa) + 10*3^(-kappa) - 5*4^(-kappa))/(1 - 2^(-kappa))
+  )
+
+# Cores
+yr.col <- c("#B4EEB4", "#698B69", "#191970")
+yr.col <- setNames(yr.col, levels(yr.interval)) |> print()
+range.kt <- range(ratios.sam$t4, na.rm = TRUE)
+
+d.label <- tibble(
+  d = table.duration,
+  d_label = sprintf("Duração: %2g h", d)
+)
+
+# Plotar diagrama --- cores por tamanho das séries
+gu.col <- "orange2"
+av.col <- "red"
+# ratio.diagram.plot <- 
+ratio.diagram.plot <- ggplot(ratios.sam, aes(x = t3, y = t4)) +
+  facet_wrap(~d, nrow = 2) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
+  geom_hline(yintercept = ratios.gum$t4, linewidth = 0.2, color = "orange2", linetype = "dashed") +
+  geom_line(aes(linetype = "GEV"), ratios.gev, linewidth = 0.5, color = "grey10") +
+  geom_point(aes(color = record), alpha = 0.8, size = 0.8, key_glyph = "rect") +
+  geom_point(aes(shape = "Média"), ratios.av, color = av.col, size = 2) +
+  geom_point(aes(shape = "Gumbel"), ratios.gum, color = gu.col, size = 2) +
+  geom_text(aes(x = Inf, y = Inf, label = d_label), d.label, family = font, size = textsize*1.1, hjust = 1.1, vjust = 2) +
+  scale_color_manual(name = "N [anos]", values = yr.col) +
+  scale_shape_manual(name = NULL, values = c(17, 16)) +
+  scale_linetype_manual(name = NULL, values = "solid") +
+  coord_cartesian(ylim = range.kt) +
+  labs(x = "L-assimetria", y = "L-curtose") +
+  theme(
+    strip.text = element_blank(),
+    legend.position = c(0, 0.99), legend.justification = c(0,1),
+    legend.title = element_text(size = fontsize*0.8),
+    legend.spacing.y = unit(-2, "pt")
+  ); ratio.diagram.plot
+
+# Boxplot L-curtose por faixa de tamanho de série e duração
+ratios.boxplot.nyr <- ratios.sam |> 
+  ggplot(aes(x = factor(d), y = t4, fill = record)) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
+  geom_hline(yintercept = ratios.gum$t4, linewidth = 0.2, color = "orange2", linetype = "dashed") +
+  geom_boxplot(
+    color = "black", median.linewidth = 0.2, staplewidth = 0.5, linewidth = 0.2,
+    whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5,
+    show.legend = FALSE
+  ) +
+  geom_text(
+    aes(x = factor(d), y = max(ratios.sam$t4, na.rm = TRUE), label = d_label), d.label,
+    family = font, size = textsize*1.1, inherit.aes = FALSE, vjust = 1
+    ) +
+  scale_fill_manual(name = NULL, values = yr.col) +
+  coord_cartesian(ylim = range.kt) +
+  labs(y = "L-curtose") +
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(l = 5.5)
+  ); ratios.boxplot.nyr
+
+# Juntar todo mundo
+ratios.plot <- 
+  wrap_plots(ratio.diagram.plot + labs(subtitle = "(a)")) /
+  wrap_plots(ratios.boxplot.nyr + labs(subtitle = "(b)")) +
+  plot_layout(heights = c(1, 0.5)); ratios.plot
+
+ggsave(
+  "figuras/preliminares/subdiarios/diagrama_lmomentos.png", ratios.plot, 
+  width = 15, height = 15, units = "cm", dpi = 300
+)
+
+
+### Informações complementares -------------------------------------------
+
+# Número de estações c/ t4 < 0.1504 (Gumbel)
+ratios.sam |> 
+  group_by(d) |> 
+  count(t4 < ratios.gum$t4) |> 
+  mutate(prop = n/sum(n))
+
+
+## DIAGRAMA DE L-MOMENTOS POR DURAÇÃO ------------------------------------
 
 # Plotar o diagrama, mas somente as cores das "durações de referência" em `durations`
 durations
