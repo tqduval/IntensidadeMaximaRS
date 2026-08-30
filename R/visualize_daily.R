@@ -94,17 +94,20 @@ n.years <- info.df$n_years
 n.breaks <- 5
 probs <- seq(0, 1, length.out = n.breaks + 1)
 breaks <- quantile(n.years, probs, type = 1, names = FALSE) # type = 1 garante valores inteiros
-# breaks <- c(31, 40, 60, 70, 80, max(n.years))
+breaks <- c(31, 40, 60, 70, 80, max(n.years))
 yr.interval <- cut(n.years, breaks, right = FALSE, include.lowest = TRUE)
 info.df$yr_interval <- yr.interval
 pmax.df <- pmax.df |> mutate(yr_interval = cut(n_years, breaks, right = FALSE, include.lowest = TRUE))
 levels(pmax.df$yr_interval)
 
+daily.sf <- daily.sf |>
+  left_join(
+    info.df |> select(gauge_code, id, n_years, yr_interval),
+    by = c("gauge_code")
+  )
+
 
 ## MAPA ESTAÇÕES ---------------------------------------------------------
-
-daily.sf <- daily.sf |> 
-  mutate(id = info.df$id[match(gauge_code, info.df$gauge_code)])
 
 bbox.rs <- st_bbox(rs.sf)
 
@@ -334,11 +337,15 @@ yr.col <- setNames(yr.col, levels(yr.interval)) |> print()
 # Boxplot kappa por faixa de duração
 kappa.boxplot.nyr <- fit.plot |> 
   ggplot(aes(x = yr_interval, y = k, fill = yr_interval)) +
-  geom_jitter(color = "grey90", alpha = 0.5) +
-  geom_hline(yintercept = 0, linewidth = 0.3, color = "grey80") +
+  geom_jitter(color = "grey90", alpha = 0.5, size = 1.5) +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
   geom_boxplot(
-    color = "black", median.linewidth = 0.2, staplewidth = 0.5, linewidth = 0.2,
-    whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5
+    color = "black", median.linewidth = 0, staplewidth = 0.5, linewidth = 0.2,
+    whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5, alpha = 0.7
+  ) +
+  stat_summary(
+    geom = "crossbar", width = 0.4, linewidth = 0.1, 
+    fun.data = function(x){c(y = median(x), ymin = median(x), ymax = median(x))}
   ) +
   scale_fill_manual(
     name = "", values = yr.col
@@ -351,9 +358,6 @@ kappa.boxplot.nyr <- fit.plot |>
 ggsave("figuras/preliminares/diarios/kappa_boxplot_nyr.png", kappa.boxplot.nyr, width = 14, height = 8, units = "cm", dpi = 300)
 
 # Mapa localização estações por classes de tamanho das séries
-daily.sf <- daily.sf |> 
-  mutate(yr_interval = info.df$yr_interval[match(gauge_code, daily.sf$gauge_code)])
-
 map.rs.plot <- ggplot() +
   geom_sf(data = rs.sf, fill = "NA", color = "black", linewidth = 0.3) +
   geom_sf(data = daily.sf, aes(color = yr_interval), size = 0.5) +
@@ -390,7 +394,18 @@ map.boxplot.nyr.kappa <-
   kappa.boxplot.nyr + labs(subtitle = "(b)") +
   plot_layout(widths = c(1, 0.8), guides = "keep"); map.boxplot.nyr.kappa
 
-ggsave("figuras/preliminares/diarios/map_boxplot_nyr.png", map.boxplot.nyr.kappa, width = 14, height = 7.5, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/diarios/map_boxplot_nyr.png", map.boxplot.nyr.kappa, width = 15, height = 7.5, units = "cm", dpi = 300)
+
+# Informações adicionais
+# Mediana dos grupos
+fit.plot |> 
+  group_by(yr_interval) |> 
+  summarise(
+    median_kappa = median(k),
+    n_gauges = n(),
+    .groups = "drop"
+  )
+
 
 
 
@@ -560,11 +575,11 @@ ggplot() +
 ggsave("figuras/preliminares/mapa_isoietas_pma.png", width = 12, height = 12, units = "cm", dpi = 300)
 
 
-## MONTE CARLO -----------------------------------------------------------
+# MONTE CARLO ------------------------------------------------------------
 
 set.seed(1234)
 
-N <- 80 # tamanho mínimo das séries
+N <- 100 # tamanho mínimo das séries
 subsample.lengths <- seq(10, max(n.years), 5) # diferentes comprimentos de subamostras
 R <- 10000 # número de repetições
 
@@ -621,32 +636,29 @@ shape.ls <- pbapply::pblapply(seq_len(nrow(grid)), function(i){
 
 shape.df <- bind_rows(shape.ls)
 
+# Estimar kappa usando trechos contínuos das séries originais
+continuous.shape.ls <- lapply(gauges.N, function(gg){
+
+  x <- pmax.ls[[gg]]
+  n <- length(x)
+  m.valid <- subsample.lengths[subsample.lengths <= n]
+
+  kappa <- sapply(m.valid, function(m) flmom(x[1:m])["k"])
+
+  data.frame(gauge_code = gg, m = m.valid, k = kappa)
+
+})
+
+continuous.shape <- bind_rows(continuous.shape.ls) |> 
+  mutate(
+    n_years = info.df$n_years[match(gauge_code, info.df$gauge_code)],
+    label = sprintf("%s | %g anos", gauge_code, n_years)
+  )
+
 # Localizar as estações selecionadas
 ggplot() +
-  geom_sf(data = rs.sf, fill = "NA", color = "black", linewidth = 0.3) +
-  geom_sf(data = daily.sf[daily.sf$gauge_code %in% gauges.N,], aes(color = yr_interval), size = 0.5) +
-  coord_sf(crs = st_crs(4674), expand = TRUE) +
-  scale_color_manual(name = "", values = yr.col) +
-  # scale_color_steps(name = "", values = unname(yr.col)) +
-  annotation_scale(
-    location = "br", width_hint = 0.2, height = unit(1.5, "mm"), text_family = font, text_cex = 0.6,
-    bar_cols = c("black", "aliceblue"), line_width = 0.4
-  ) +
-  annotation_north_arrow(
-    location = "tr" , width = unit(1, "cm"), height = unit(1, "cm"), which_north = "true",
-    style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "aliceblue"))
-  ) +
-  labs(x = "Longitude", y = "Latitude") +
-  theme(
-    legend.title = element_blank(),
-    margins = margin(l = 5.5),
-    # legend.position = c(1, 0),
-    # legend.justification = c(1, 0),
-    # legend.direction = "vertical",
-    legend.key.height = unit(fontsize*0.8, "pt")
-    # legend.spacing.x = unit(fontsize*2, "pt")
-    # legend.spacing.y = unit(0, "pt")
-  )
+  geom_sf(data = macrobh.sf, fill = "NA", color = "grey", linewidth = 0.3) +
+  geom_sf(data = daily.sf[daily.sf$gauge_code %in% gauges.N,], size = 2)
 
 # Estão relativamente bem espalhadas pelo estado
 
@@ -659,6 +671,18 @@ shape.original <- t(apply(pmax.N, 2, flmom)) |>
     label = sprintf("%s | %g anos", gauge_code, n_years)
   )
 
+rmse.shape <- shape.df |> 
+  group_by(gauge_code, m) |> 
+  summarise(
+    median = median(kappa),
+    .groups = "drop"
+  ) |> 
+  mutate(
+    original_kappa = shape.original$k[match(gauge_code, shape.original$gauge_code)],
+    rmse = sqrt((median - original_kappa)^2)
+  )
+
+m.breaks <- seq(10, max(n.years), 10)
 
 # Avaliar o comportamento das séries ao longo dos valores de `m'`
 kappa.boot.boxplot <- shape.df |> 
@@ -666,22 +690,70 @@ kappa.boot.boxplot <- shape.df |>
     n_years = info.df$n_years[match(gauge_code, info.df$gauge_code)],
     label = sprintf("%s | %g anos", gauge_code, n_years)
   ) |> 
-  filter(m %in% seq(10, max(n.years), 10)) |> 
+  filter(m %in% m.breaks) |> 
   ggplot(aes(x = factor(m), y = kappa)) +
   facet_wrap(~fct_reorder(label, n_years, .desc = TRUE), ncol = 1, scales = "free_y") +
   # geom_jitter(color = "grey90", alpha = 0.5, size = 0.8) +
-  geom_hline(aes(yintercept = k), shape.original, color = "red", linetype = "dashed", linewidth = 0.3) +
+  geom_text(
+    aes(x = Inf, y = Inf, label = sprintf("Estimativa original: κ = %5.3f", k)), shape.original,
+    inherit.aes = FALSE, hjust = 1.05, vjust = 1.8, family = font, size = textsize
+  ) +
   geom_hline(yintercept = 0, linewidth = 0.3, color = "grey80") +
   geom_boxplot(
-    color = "black", fill = "#191970", median.linewidth = 0.2, staplewidth = 0.5, linewidth = 0.2,
-    whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5
+    color = "black", fill = "white", median.linewidth = 0, staplewidth = 0.5, linewidth = 0.2,
+    whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.2, alpha = 0.7,
+  ) +
+  stat_summary(
+    geom = "crossbar", width = 0.4, linewidth = 0.1, fun.data = function(x){
+      c(y = median(x), ymin = median(x), ymax = median(x))
+    }
+  ) +
+  geom_line(
+    aes(x = factor(m), y = k, group = 1), continuous.shape |> filter(m %in% m.breaks),
+    color = "black", linewidth = 0.3, linetype = "solid"
+  ) +
+  geom_point(
+    aes(x = factor(m), y = k, group = 1), continuous.shape |> filter(m %in% m.breaks),
+    shape = 21, color = "black", fill = "white", size = 1
   ) +
   labs(x = "N [anos]", y = "κ") + 
   theme(
     legend.position = "none"
   ); kappa.boot.boxplot
 
-ggsave("figuras/preliminares/diarios/kappa_boot_boxplot.png", kappa.boot.boxplot, width = 14, height = 20, units = "cm", dpi = 300)
+ggsave(
+  "figuras/preliminares/diarios/kappa_boot_boxplot.png", kappa.boot.boxplot, 
+  width = 15, height = 15, units = "cm", dpi = 300
+)
+
+# Informações complementares
+# Avaliar os primeiros 30 anos das três estações
+shape.by.nyears <- pmax.df |> 
+  filter(gauge_code %in% gauges.N) |> 
+  select(gauge_code, year, peak_24h) |> 
+  ungroup() |> 
+  na.omit() |> 
+  arrange(gauge_code, year) |> 
+  mutate(
+    n_years = row_number(),
+    kappa = map_dbl(n_years, function(i){
+      if(i < 4) return(NA_real_)
+      flmom(peak_24h[1:i])["k"]
+    }),
+    .by = "gauge_code"
+  ) |> print(n = 310)
+
+shape.by.nyears |> 
+  group_by(gauge_code) |> 
+  filter(n_years <= 100) |> 
+  summarise(
+    median = median(peak_24h),
+    max = max(peak_24h),
+    sd = sd(peak_24h),
+    skew = moments::skewness(peak_24h),
+    lskew = lmom::samlmu(peak_24h)[3],
+    lkurt = lmom::samlmu(peak_24h)[4]
+  )
 
 # Avaliar o comportamento do conjunto completo de estações
 median(shape.original$k)
@@ -840,3 +912,4 @@ shape.df |>
   )
 
 ggsave("figuras/preliminares/diarios/sim_kappa_boxplot.png", width = 14, height = 20, units = "cm", dpi = 300)
+
