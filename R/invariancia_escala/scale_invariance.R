@@ -3,9 +3,10 @@ rm(list = ls()); invisible(gc())
 
 # PACOTES -----------------------------------------------------------------
 
-pacman::p_load(pacman, tidyverse, arrow)
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(pacman, tidyverse, arrow, lmom, ggpmisc)
 
-suppressMessages(extrafont::loadfonts())
+# suppressMessages(extrafont::loadfonts())
 font <- "JetBrainsMono NF"
 # font <- "Courier New"
 fontsize <- 8
@@ -412,6 +413,10 @@ strict.sense |>
   geom_smooth(
     aes(group = gauge_code), color = "grey20", linetype = "solid", alpha = 0.8,
     method = "lm", formula = y~x, se = FALSE, linewidth = 0.3
+  ) +
+  ggpmisc::stat_poly_eq(
+    aes(label = after_stat(rr.label)), formula = y~x, rr.digits = 4, family = font, size = textsize, 
+    label.x = Inf, hjust = 1.2, fontface = "plain"
   ) +
   geom_point(color = "black", fill = "black", size = 1) +
   scale_x_log10(name = "Durações [h]", breaks = c(1, 3, 10, 24)) +
