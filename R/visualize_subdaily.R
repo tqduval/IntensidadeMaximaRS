@@ -5,6 +5,7 @@ pacman::p_load(
   pacman, tidyverse, arrow, 
   ggtext, ggrepel, ggspatial, patchwork, extrafont, ggpattern, ggpp,
   sf, rnaturalearth, tidyterra, spdep,
+  lmom, moments,
   xtable
 )
 
@@ -1191,6 +1192,76 @@ par.dgev.df |>
   unique() |> 
   print()
 
+
+# Informações adicionais
+# Quantas estações com RGMLE são positivas e quantas são negativas
+par.dgev.df |> 
+  filter(
+    parname == "kappa",
+    prior == which.prior[2] # manter estimativas c/ RGMLE
+  ) |> 
+  select(gauge_code, par, ci_lower, ci_upper) |> 
+  mutate(
+    sign = sign(par),                                 # sinal de kappa
+    ci_includes_zero = 0 <= ci_upper & 0 >= ci_lower, # IC inclui 0?
+  ) |> 
+  group_by(sign) |> 
+  summarise(
+    min = min(par), max = max(par),
+    n = n()
+  )
+
+# Quantas estações c/ RGMLE ajustaram kappas entre -0,05 e 0,05
+par.dgev.df |> 
+  filter(
+    parname == "kappa",
+    prior == which.prior[2], # manter estimativas c/ RGMLE
+    par <= 0.05 & par >= -0.05
+  ) |> 
+  select(gauge_code, par, ci_lower, ci_upper) |>
+  left_join(
+    imax.df |> select(gauge_code, n_years) |> slice(1, .by = "gauge_code"),
+    by = "gauge_code"
+  )
+
+
+# Análises c/ intervalos de confiança
+ci.width <- par.dgev.df |> 
+  filter(
+    parname == "kappa",
+    model %in% prior.names[c(1, 4)] # manter somente MLE e RGMLE
+  ) |> 
+  select(gauge_code, par, ci_lower, ci_upper, model) |> 
+  mutate(
+    model = case_when(
+      model == prior.names[1] ~ "mle",
+      model == prior.names[4] ~ "rgmle",
+    ),
+    ci_width = ci_upper - ci_lower
+  ) |> 
+  pivot_wider(
+    id_cols = gauge_code,
+    names_from = model,
+    values_from = c(par, ci_width)
+  ) |> 
+  mutate(
+    smaller_ci_w_rgmle = ci_width_mle > ci_width_rgmle
+  )
+
+# Quantas estações tiveram ICs menores c/ RGMLE
+ci.width |> count(smaller_ci_w_rgmle)
+
+# Quais estações tiveram ICs maiores c/ RGMLE
+ci.width |> 
+  filter(!smaller_ci_w_rgmle) |> 
+  mutate(id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)], .after = gauge_code)
+
+# Em quantos porcento o intervalo c/ RGMLE é menor
+ci.width |> 
+  mutate(width_ratio = (ci_width_rgmle - ci_width_mle)/ci_width_mle*100) |> 
+  select(gauge_code, width_ratio) |> 
+  arrange(width_ratio) |> 
+  print(n = 54)
 
 ## PLOTAR ALGUNS PERFIS DE VEROSSIMILHANÇA -------------------------------
 
