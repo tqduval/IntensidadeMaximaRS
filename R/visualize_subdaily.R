@@ -1382,7 +1382,7 @@ par.dgev.sf <- par.dgev.df |>
   st_as_sf()
 
 par.sf <- par.dgev.sf |> 
-  filter(model == prior.names[4]) |> # manter somente RGMLE
+  filter(model == prior.names[4])
 
 
 # Criar uma camada `SpatRaster`
@@ -1440,7 +1440,7 @@ plot.ls <- lapply(seq_along(par.ls), function(i){
   par.name <- unique(df$parname)
   ggplot() +
     geom_sf(aes(fill = interval), df, color = NA) +
-    geom_sf(data = subdaily.sf, color = "white", shape = 3, size = 0.8, inherit.aes = FALSE) +
+    geom_sf(data = subdaily.sf, color = "grey10", shape = 3, size = 1, inherit.aes = FALSE) +
     geom_sf(data = rs.sf, color = "black", fill = NA, linewidth = 0.3, inherit.aes = FALSE) +
     scale_fill_manual(name = NULL, values = colors.ls[[par.name]]) +
     coord_sf(crs = st_crs(4674), xlim = bbox.rs[c(1,3)], ylim = bbox.rs[c(2,4)], expand = TRUE, clip = "off") +
@@ -1464,10 +1464,17 @@ plot.ls <- lapply(seq_along(par.ls), function(i){
       panel.border = element_rect(linewidth = 0.3),
       plot.margin = margin(3, 3, 3, 3)
     )
-})
+}) # fim 
 
-plot.dgev.par <- wrap_plots(plot.ls) +
-  plot_layout(ncol = 2, axis = "collect")
+# plot.dgev.par <- wrap_plots(plot.ls) + plot_layout(ncol = 2, axis = "collect")
+
+layout <- "
+  1111
+  2222
+  #33#
+"
+
+plot.dgev.par <- wrap_plots(plot.ls[1:2]) / wrap_plots(plot.ls[3:4]) / wrap_plots(plot.ls[5]) + plot_layout(design = layout)
 
 plot.dgev.par
 
@@ -1476,6 +1483,88 @@ ggsave(
   width = 15, height = 20, units = "cm", dpi = 300
 )
 
+
+### Tabela com parâmetros estimados --------------------------------------
+
+table.dgev <- par.dgev.df |> 
+  mutate(id = gauge.ids$id[match(gauge_code, gauge.ids$gauge_code)], .after = gauge_code) |> 
+  filter(model == prior.names[4]) |> # manter somente RGMLE
+  select(gauge_code, parname, par, ci_lower, ci_upper) |> 
+  mutate(
+    table_res = sprintf("%4.3f [%3.2f;%3.2f]", par, ci_lower, ci_upper),
+    table_res = str_replace(table_res, pattern = "\\.", replacement = ",")
+  ) |>  
+  pivot_wider(
+    id_cols = gauge_code,
+    names_from = parname,
+    values_from = table_res
+  )
+
+table.names <- c("Codigo estacao", "$\\tilde{\\xi}$", "$\\alpha_0$", "$\\kappa$", "$H$", "$\\theta$")
+
+# table.dgev <- par.dgev.df |> 
+#   filter(model == prior.names[4]) |> # manter somente RGMLE
+#   select(gauge_code, parname, par, ci_lower, ci_upper) |> 
+#   mutate(
+#     parname = case_when(
+#       parname == "xit" ~ "$\\tilde{\\xi}$",
+#       parname == "alpha0" ~ "$\\alpha_0$",
+#       parname == "kappa" ~ "$\\kappa$",
+#       parname == "H" ~ "H",
+#       parname == "theta" ~ "$\\theta$"
+#     ),
+#     across(where(is.numeric), ~ gsub("\\.", ",", sprintf("%0.4f", .x)))
+#   )
+
+# table.names <- c("{Código estação}", "Parâmetro", "Estimativa", "Limite inferior", "Limite superior")
+
+names(table.dgev) <- table.names
+n.col <- ncol(table.dgev)
+cap <- "Parametros ajustados do modelo d-GEV com maxima verossimilhanca generalizada utilizando informacao regional sobre o parametro de forma."
+dgev.xtable <- table.dgev |> 
+  xtable(
+    caption = cap,
+    label = "tab_dgev_rgmle",
+    align = rep("c", n.col + 1)
+  )
+
+extra.rows <- list()
+extra.rows$pos <- list(0)
+ltx.cmd <- sprintf(
+  "\\endfirsthead
+  \\caption[]{%s (continuacao)} \\\\
+  \\toprule
+  %s \\\\
+   \\midrule
+  \\endhead
+  \\midrule
+  \\multicolumn{%d}{r}{{Continua na proxima pagina...}} \\\\
+  \\endfoot
+  \\endlastfoot \n",
+  cap,
+  paste(table.names, collapse = " & "),
+  n.col
+)
+
+extra.rows$command <- ltx.cmd
+
+dgev.table.string <- print(
+  dgev.xtable, type = "latex", include.rownames = FALSE, caption.placement = "top",
+  sanitize.colnames.function = identity, 
+  sanitize.text.function = identity,
+  tabular.environment = "longtable", # changes to longtable
+  floating = FALSE,                  # required for longtable to work
+  add.to.row = extra.rows,
+  hline.after = c(-1)
+)
+
+cat(
+  "\\begingroup\n\\scriptsize\n\\renewcommand{\\arraystretch}{0.8}",
+  dgev.table.string,
+  "\\endgroup\n",
+  file = "tabelas/5_dgev_par_rgmle.txt",
+  sep = ""
+)
 
 ## CURVAS DE FREQUÊNCIA --------------------------------------------------
 
