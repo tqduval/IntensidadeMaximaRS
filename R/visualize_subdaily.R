@@ -591,7 +591,7 @@ ratios.df <- imax.df |>
     label = factor(label, levels = c("L-CV", "L-assimetria", "L-curtose")),
     n_years = imax.df$n_years[match(gauge_code, imax.df$gauge_code)],
   ) |> 
-  arrange(gauge_code, d, ratios)
+  arrange(gauge_code, d, ratios) 
 
 
 # Identificar outliers
@@ -1381,8 +1381,25 @@ par.dgev.sf <- par.dgev.df |>
   select(gauge_code, parname, par, ci_lower, ci_upper, model, geometry) |> 
   st_as_sf()
 
+# Plotar c/ xit
 par.sf <- par.dgev.sf |> 
   filter(model == prior.names[4])
+
+# ou plotar c/ xi0
+par.sf <- par.sf |> 
+  # st_drop_geometry() |> 
+  pivot_wider(
+    id_cols = c(gauge_code, geometry),
+    names_from = parname,
+    values_from = par
+  ) |> 
+  mutate(xi0 = xit*alpha0, .after = xit) |> 
+  pivot_longer(
+    cols = -c(gauge_code, geometry),
+    names_to = "parname",
+    values_to = "par"
+  ) |> 
+  filter(parname != "xit")
 
 
 # Criar uma camada `SpatRaster`
@@ -1424,7 +1441,8 @@ par.r <- par.sf |>
 
 rownames(par.r) <- NULL
 colors.ls <- list(
-  xit = RColorBrewer::brewer.pal(length(par.breaks[["xit"]]), "Greens"),
+  # xit = RColorBrewer::brewer.pal(length(par.breaks[["xit"]]), "Greens"),
+  xi0 = RColorBrewer::brewer.pal(length(par.breaks[["xi0"]]), "Greens"),
   alpha0 = RColorBrewer::brewer.pal(length(par.breaks[["alpha0"]]), "Blues"),
   kappa = c("#0571b0", "#92c5de", "#f7b5b5", "#db5454"),
   H = RColorBrewer::brewer.pal(length(par.breaks[["H"]]), "Purples"),
@@ -1432,8 +1450,10 @@ colors.ls <- list(
 )
 
 subtitle <- c("a", "b", "c", "d", "e")
-par.order <- c("xit", "alpha0", "kappa", "H", "theta")
-par.labels <- c("ξ&#771;", "α<sub>0</sub>", "κ", "H", "Θ")
+# par.order <- c("xit", "alpha0", "kappa", "H", "theta")
+# par.labels <- c("ξ&#771;", "α<sub>0</sub>", "κ", "H", "Θ")
+par.order <- c("xi0", "alpha0", "kappa", "H", "theta")
+par.labels <- c("ξ<sub>0</sub>", "α<sub>0</sub>", "κ", "H", "Θ")
 par.ls <- split(par.r, par.r$parname)[par.order]
 plot.ls <- lapply(seq_along(par.ls), function(i){
   df <- par.ls[[i]]
@@ -1482,6 +1502,15 @@ ggsave(
   "figuras/preliminares/subdiarios/mapa_dgev_par.png", plot.dgev.par,
   width = 15, height = 20, units = "cm", dpi = 300
 )
+
+# Informações complementares
+par.dgev.df |> 
+  filter(
+    model == prior.names[4],
+    parname == "theta",
+    par == 0
+  ) |> 
+  nrow()
 
 
 ### Tabela com parâmetros estimados --------------------------------------
@@ -2216,7 +2245,6 @@ performance.summary.df |>
   # filter(plot_pos == which.position, model == "IDF-SGB") |> 
   filter(
     plot_pos == which.position, model == "d-GEV", prior %in% c("NULL", "c(0.0178, 0.0627)"),
-    d %in% c(1, 3, 6, 9, 12, 18, 24)
   ) |> 
   group_by(model, prior, d = factor(d)) |> 
   summarise(
@@ -2228,12 +2256,14 @@ performance.summary.df |>
     max_gauge = gauge_code[which.max(r_rmse)],
     max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
     .groups = "drop"
-  ) |> arrange(d) |> print(n = 24)
+  ) |> arrange(prior) |> print(n = Inf)
 
 # Mediana do rBIAS p/ diferentes durações
 performance.summary.df |> 
-  filter(plot_pos == which.position, model == "d-GEV") |> # como são próximos, acho razoável 
-  group_by(model, d = factor(d)) |>                       # agrupar os dois modelos da d-GEV 
+  filter(
+    plot_pos == which.position, model == "d-GEV", prior %in% c("NULL", "c(0.0178, 0.0627)"),
+  ) |> # como são próximos, acho razoável 
+  group_by(model, prior, d = factor(d)) |>                       # agrupar os dois modelos da d-GEV 
   summarise(
     q25 = quantile(r_bias, probs = 0.25),
     q50 = quantile(r_bias, probs = 0.5),
@@ -2243,9 +2273,25 @@ performance.summary.df |>
     max_gauge = gauge_code[which.max(r_bias)],
     max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
     .groups = "drop"
-  ) |> print(n = 24)
+  ) |> arrange(prior) |> print(n = Inf)
 
 idf.sgb.df[idf.sgb.df$gauge_code == "432260802A",]
+
+# Quantas estações tiverem viés negativo p/ 1 h no modelo convencional
+performance.summary.df |> 
+  filter(model == "IDF-SGB", d == 24, plot_pos == which.position, r_bias < 0) |> 
+  select(gauge_code, d, model, return_period, n, r_rmse, r_bias) |> 
+  slice(1, .by = gauge_code) |> 
+  print(n = Inf)
+
+# Em quantas estações os modelos d-GEV subestimam (r_bias < 0)
+performance.summary.df |> 
+  filter(
+    plot_pos == which.position, model == "d-GEV", prior %in% c("NULL", "c(0.0178, 0.0627)"),
+  ) |> 
+  select(gauge_code, d, model, prior, return_period, n, r_rmse, r_bias) |> 
+  slice(1, .by = gauge_code)
+
 
 # ------------------------------------------------------------------------
 
@@ -2311,6 +2357,25 @@ bias.boxplot <- performance.summary.df |>
 
 ggsave("figuras/preliminares/subdiarios/boxplot_bias.png", bias.boxplot, width = 15, height = 10, units = "cm", dpi = 300)
 
+
+# Juntar rRMSE e rBIAS na mesma figura
+plot.metricas.obs <- 
+  wrap_plots(
+    rmse.boxplot + 
+      labs(subtitle = "(a) rRMSE", y = NULL) + 
+      theme(plot.margin = margin(0.5, 0.5, 3, 0.5))
+  ) +
+  wrap_plots(
+    bias.boxplot + 
+      labs(subtitle = "(b) rBIAS", y = NULL) +
+      theme(plot.margin = margin(3, 0.5, 0.5, 0.5))
+  ) +
+  plot_layout(ncol = 1); plot.metricas.obs
+
+ggsave(
+  "figuras/preliminares/subdiarios/boxplot_metricas_obs.png", plot.metricas.obs,
+  width = 15, height = 20, units = "cm", dpi = 300
+)
 
 ### Comparação entre quantis da GEV (RGMLE) e estimativas da d-GEV -------
 
@@ -2506,13 +2571,31 @@ ggsave(
   width = 15, height = 10, units = "cm", dpi = 300
   )
 
+# Juntar todo mundo
+plot.boxplot.high.rp <- 
+  wrap_plots(
+    boxplot.high.rp.rmse + 
+      labs(subtitle = "(a) rRMSE", y = NULL) + 
+      theme(plot.margin = margin(0.5, 0.5, 3, 0.5))
+  ) +
+  wrap_plots(
+    boxplot.high.rp.bias + 
+      labs(subtitle = "(b) rBIAS", y = NULL) +
+      theme(plot.margin = margin(3, 0.5, 0.5, 0.5))
+  ) +
+  plot_layout(ncol = 1)
+
+ggsave(
+  "figuras/preliminares/subdiarios/boxplot_metricas_maiores_trs.png", plot.boxplot.high.rp,
+  width = 15, height = 20, units = "cm", dpi = 300
+)
+
 
 # ------------------------------------------------------------------------
 
 
 # Comparar frequências observadas e modeladas plotando as IDFs
 # versus as intensidades observadas
-
 
 # Visualizar IDFs SGB
 par.labels <- performance.sgb.df |> 
@@ -2604,8 +2687,8 @@ idf.dgev.plot <- performance.df |>
   ggplot(aes(x = d, group = factor(return_period))) +
   facet_wrap(~gauge_label, ncol = 4) +
   geom_line(aes(y = imax, color = "Intensidades observadas"), linewidth = 0.3) +
-  geom_line(aes(y = q, color = "d-GEV (MLE)"), ~filter(., prior == names(prior.names)[1]), linewidth = 0.1, alpha = 0.8) +
-  # geom_line(aes(y = q, color = "d-GEV (RGMLE)"), ~filter(., prior == names(prior.names)[4]), linewidth = 0.1, alpha = 0.8) +
+  # geom_line(aes(y = q, color = "d-GEV (MLE)"), ~filter(., prior == names(prior.names)[1]), linewidth = 0.1) +
+  geom_line(aes(y = q, color = "d-GEV (RGMLE)"), ~filter(., prior == names(prior.names)[4]), linewidth = 0.1) +
   geom_text(
     aes(x = Inf, y = Inf, label = sprintf("κ: %7.3f", kappa)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 1.8, size = textsize*0.55
@@ -2622,8 +2705,8 @@ idf.dgev.plot <- performance.df |>
   scale_y_log10(name = "Intensidade [mm/h]") +
   scale_color_manual(
     name = NULL,
-    values = c("d-GEV (MLE)" = prior.col[[1]], "Intensidades observadas" = "grey90")
-    # values = c("d-GEV (RGMLE)" = prior.col[[4]], "Intensidades observadas" = "grey90")
+    # values = c("d-GEV (MLE)" = prior.col[[1]], "Intensidades observadas" = "grey90")
+    values = c("d-GEV (RGMLE)" = prior.col[[4]], "Intensidades observadas" = "grey90")
   ) +
   theme(
     text = element_text(size = fontsize*0.8),
@@ -2635,8 +2718,8 @@ idf.dgev.plot <- performance.df |>
     color = guide_legend(override.aes = list(linewidth = 0.4))
   ); idf.dgev.plot
 
-ggsave("figuras/preliminares/subdiarios/idf_dgev_mle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
-# ggsave("figuras/preliminares/subdiarios/idf_dgev_rgmle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+# ggsave("figuras/preliminares/subdiarios/idf_dgev_mle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+ggsave("figuras/preliminares/subdiarios/idf_dgev_rgmle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
 
 
 # ------------------------------------------------------------------------
