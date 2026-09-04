@@ -1597,6 +1597,7 @@ cat(
 
 ## CURVAS DE FREQUÊNCIA --------------------------------------------------
 
+durations <- seq_len(24)
 
 # Posições de plotagem
 freq.obs.df <- imax.df |> 
