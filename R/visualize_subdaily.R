@@ -148,67 +148,6 @@ anadem <- terra::crop(raster.anadem, rs.sf, mask = TRUE)
 
 ## d-GEV -----------------------------------------------------------------
 
-# # Ler lista resultados perfil verossimilhança
-# # fitprof_dgev.R
-# fitprof.dgev.nprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_nprior.rds") # versão sem priori
-# fitprof.dgev.wprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior.rds") # versão com priori regional
-# fitprof.dgev.wprior.ninfo.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior_ninfo.rds") # versão com priori pouco informativa
-# fitprof.dgev.wprior.martins.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior_martins.rds") # versão com priori Martins
-# invisible(gc())
-
-# # Checar resultados da rodada 'wprior' com correções
-# # fitprof.wprior.ls <- readRDS("base/gerados/ls_fit_dgev_prof_wprior2.rds") # temp
-# # par.df <- fitprof.wprior.ls$par # temp
-# # idf.df <- fitprof.wprior.ls$idf # temp
-# # par.df <- fitprof.nprior.ls$par # temp
-# # idf.df <- fitprof.nprior.ls$idf # temp
-
-# # Parâmetros
-# par.dgev.df <- bind_rows(
-#   fitprof.dgev.nprior.ls$par,
-#   fitprof.dgev.wprior.ls$par,
-#   fitprof.dgev.wprior.ninfo.ls$par,
-#   fitprof.dgev.wprior.martins.ls$par
-# )
-
-# # Quantis
-# idf.dgev.df <- bind_rows(
-#   fitprof.dgev.nprior.ls$idf,
-#   fitprof.dgev.wprior.ls$idf,
-#   fitprof.dgev.wprior.ninfo.ls$idf,
-#   fitprof.dgev.wprior.martins.ls$idf
-# )
-
-# durations <- c(1, 6, 12, 24)
-
-# Profiles
-# prof.par <- bind_rows(
-#   fitprof.dgev.nprior.ls$prof.par,       # 1
-#   fitprof.dgev.wprior.ls$prof.par,       # 2
-#   fitprof.dgev.wprior.ninfo.ls$prof.par, # 3
-#   .id = "model"
-# ) |> 
-#   mutate(
-#     model = ifelse(model == 1, "MLE", "RGMLE")
-#   ) |> 
-#   relocate(model, .after = last_col())
-
-# prof.q <- bind_rows(
-#   fitprof.nprior.ls$prof.q, # 1
-#   fitprof.wprior.ls$prof.q, # 2
-#   .id = "model"
-# ) |> 
-#   mutate(
-#     model = ifelse(model == 1, "MLE", "RGMLE")
-#   ) |> 
-#   relocate(model, .after = last_col())
-
-# # Remover `fitprof.dgev` do ambiente
-# rm(list = ls()[grepl("fitprof.dgev", ls())])
-# invisible(gc())
-
-# write_parquet(par.dgev.df, "base/gerados/df_par_dgev.pqt")
-# write_parquet(idf.dgev.df, "base/gerados/df_idf_dgev.pqt")
 par.dgev.df <- read_parquet("base/gerados/df_par_dgev.pqt")
 idf.dgev.df <- read_parquet("base/gerados/df_idf_dgev.pqt")
 
@@ -228,37 +167,10 @@ idf.dgev.df <- idf.dgev.df |> mutate(model = prior.names[prior])
 # Estimativas do parâmetro de forma com bootstrap e L-momentos
 # shape_ci_boot_only_lmom.R
 shape.boot.df <- arrow::read_parquet("base/gerados/df_shapes_boot_lmom.pqt")
-
-# # Estimativas com perfil de verossimilhança por duração (tem que rodar ainda)
-# # Por duração sem priori
-# fitprof.gev.nprior.ls <- readRDS("base/gerados/ls_fit_gev_prof_nprior.rds")
-# fitprof.gev.wprior.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior.rds")
-# fitprof.gev.wprior.ninfo.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior_ninfo.rds")
-# fitprof.gev.wprior.martins.ls <- readRDS("base/gerados/ls_fit_gev_prof_wprior_martins.rds")
-
-# # Parâmetros
-# par.gev.df <- bind_rows(
-#   fitprof.gev.nprior.ls$par,
-#   fitprof.gev.wprior.ls$par,
-#   fitprof.gev.wprior.ninfo.ls$par,
-#   fitprof.gev.wprior.martins.ls$par
-# )
-
-# # Quantis
-# idf.gev.df <- bind_rows(
-#   fitprof.gev.nprior.ls$idf,
-#   fitprof.gev.wprior.ls$idf,
-#   fitprof.gev.wprior.ninfo.ls$idf,
-#   fitprof.gev.wprior.martins.ls$idf
-# )
-
-# rm(list = ls()[grepl("fitprof.gev", ls())])
-# invisible(gc())
-
-# write_parquet(par.gev.df, "base/gerados/df_par_gev.pqt")
-# write_parquet(idf.gev.df, "base/gerados/df_idf_gev.pqt")
 par.gev.df <- read_parquet("base/gerados/df_par_gev.pqt")
 idf.gev.df <- read_parquet("base/gerados/df_idf_gev.pqt")
+par.gev.df <- par.gev.df |> mutate(model = prior.names[prior])
+idf.gev.df <- idf.gev.df |> mutate(model = prior.names[prior])
 
 
 
@@ -619,8 +531,13 @@ ratios.d.plot <- ratios.df |>
   facet_wrap(~label, ncol = 1, scale = "free_y", strip.position = "left") +
   geom_hline(aes(yintercept = y), zero.lines, linetype = "dashed", linewidth = 0.2, color = "grey") +
   geom_boxplot(
-    fill = "grey90", median.linewidth = 0.2, staplewidth = 0.5, linewidth = 0.2,
+    fill = "grey90", median.linewidth = 0, staplewidth = 0.5, linewidth = 0.2,
     whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5
+  ) +
+  stat_summary(
+    geom = "crossbar", width = 0.4, linewidth = 0.1, fun.data = function(x){
+      c(y = median(x), ymin = median(x), ymax = median(x))
+    }
   ) +
   labs(x = "Duração [h]", y = "Razões de L-momentos") +
   theme(
@@ -770,6 +687,7 @@ stats.df |> slice_min(d) |> count(n_years == 13) |> mutate(prop = n/(sum(n)))
 
 ## DIAGRAMA DE L-MOMENTOS POR TAMANHO DAS SÉRIES -------------------------
 
+table.duration <- c(1, 6, 12, 24)
 n.breaks <- 3
 n.years <- info.df |>
   mutate(n_years = imax.df$n_years[match(gauge_code, imax.df$gauge_code)]) |> 
@@ -861,14 +779,15 @@ ratios.boxplot.nyr <- ratios.sam |>
   geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
   geom_hline(yintercept = ratios.gum$t4, linewidth = 0.2, color = "orange2", linetype = "dashed") +
   geom_boxplot(
-    color = "black", median.linewidth = 0.2, staplewidth = 0.5, linewidth = 0.2,
+    color = "black", median.linewidth = 0, staplewidth = 0.5, linewidth = 0.2,
     whisker.linetype = "dashed", outlier.size = 0.5, outlier.alpha = 0.5,
     show.legend = FALSE
   ) +
-  geom_text(
-    aes(x = factor(d), y = max(ratios.sam$t4, na.rm = TRUE), label = d_label), d.label,
-    family = font, size = textsize*1.1, inherit.aes = FALSE, vjust = 1
-    ) +
+  stat_summary(
+    geom = "crossbar", width = 0.4, linewidth = 0.1, fun.data = function(x){
+      c(y = median(x), ymin = median(x), ymax = median(x))
+    }
+  ) +
   scale_fill_manual(name = NULL, values = yr.col) +
   coord_cartesian(ylim = range.kt) +
   labs(y = "L-curtose") +
@@ -1367,9 +1286,7 @@ ggsave("figuras/preliminares/subdiarios/perfil_q1_100_proflik.png", width = 12, 
 
 # IDF --------------------------------------------------------------------
 
-
 ## AVALIAÇÃO ESPACIAL DOS PARÂMETROS DA d-GEV ----------------------------
-
 
 ### Interpolação IDW -----------------------------------------------------
 
@@ -2401,22 +2318,23 @@ high.rp <- unique(idf.gev.df$return_period)
 #   group_modify(~fgev.lmom(.x$imax, rp)) |> # group_modify usa tbl_df como entrada
 #   ungroup()
 
-idf.lmom <- idf.lmom |> 
+idf.lmom <- idf.lmom |> # esse arquivo vêm do fit_idf_sgb.R
   rename(q = intensity)
 
 rp <- c(10, 20, 50, 100)
 
-# Juntar `idf.gev.df` e `idf.dgev.df`
-performance.high.rp <- idf.gev.df |> 
-  filter(return_period %in% rp, prior == priors[4]) |> 
-  select(gauge_code, d, return_period, q) |> # não selecionar coluna `prior`
+# Juntar `idf.gev.df` e `idf.dgev.df` c/ informações
+# dos ajustes c/ incerteza estimada por perfil de verossimilhança
+performance.high.rp <- idf.gev.df |>                   # estimativas c/ GEV por duração
+  filter(return_period %in% rp, prior == priors[4]) |> # priors[4] é RGMLE
+  select(gauge_code, d, return_period, q) |>           # não selecionar coluna `prior`
   rename(q_gev = q) |> 
-  left_join(
+  left_join(                                           # estimativas c/ d-GEV
     idf.dgev.df |> select(gauge_code, d, return_period, prior, q) |> rename(q_dgev = q),
     by = c("gauge_code", "d", "return_period")
   ) |> 
   left_join(
-    idf.sgb.df |> select(-dpma),
+    idf.sgb.df |> select(-dpma),                       # estimativas IDF-SGB
     by = c("gauge_code")
   ) |> 
   rowwise() |> 
@@ -2426,12 +2344,12 @@ performance.high.rp <- idf.gev.df |>
   ungroup() |> 
   select(-c(k, gamma, c, b)) |> 
   pivot_longer(
-    cols = -c(gauge_code, d, return_period, prior, q_gev),
+    cols = -c(gauge_code, d, return_period, prior, q_gev), # estimativas c/ GEV por duração não entram no pivot
     names_to = "model",
     names_prefix = "q_",
     values_to = "q_model"
   ) |> 
-  filter(prior %in% priors[c(1, 4)])|> 
+  filter(prior %in% priors[c(1, 4)]) |> 
   mutate(
     residual = q_gev - q_model,
     model_label = tolower(paste0(model, "_", gsub(" .*", "", prior.names[prior])))
@@ -2591,6 +2509,114 @@ ggsave(
   width = 15, height = 20, units = "cm", dpi = 300
 )
 
+# Informações complementares --- rRMSE
+boxplot.summary.rp <- performance.high.rp |> 
+  group_by(model_label, d) |> 
+  summarise(
+    q25 = quantile(r_rmse, probs = 0.25),
+    q50 = quantile(r_rmse, probs = 0.5),
+    q75 = quantile(r_rmse, probs = 0.75),
+    iqr = q75 - q25,
+    max = max(r_rmse, na.rm = TRUE),
+    max_gauge = gauge_code[which.max(r_rmse)],
+    max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
+    .groups = "drop"
+  ) |> print(n = Inf)
+
+boxplot.summary.rp |> filter(model_label == "dgev_mle") |> print(n = Inf)   # d-GEV (MLE)
+boxplot.summary.rp |> filter(model_label == "dgev_rgmle") |> print(n = Inf) # d-GEV (RGMLE)
+boxplot.summary.rp |> filter(model_label == "sgb") |> print(n = Inf)        # IDF-SGB
+
+# Informações complementares --- rBIAs
+boxplot.summary.rp <- performance.high.rp |> 
+  group_by(model_label, d) |> 
+  summarise(
+    q25 = quantile(r_bias, probs = 0.25),
+    q50 = quantile(r_bias, probs = 0.5),
+    q75 = quantile(r_bias, probs = 0.75),
+    iqr = q75 - q25,
+    max = max(r_bias, na.rm = TRUE),
+    max_gauge = gauge_code[which.max(r_bias)],
+    max_id = gauge.ids$id[match(max_gauge, gauge.ids$gauge_code)],
+    .groups = "drop"
+  ) |> print(n = Inf)
+
+boxplot.summary.rp |> filter(model_label == "dgev_mle") |> print(n = Inf)   # d-GEV (MLE)
+boxplot.summary.rp |> filter(model_label == "dgev_rgmle") |> print(n = Inf) # d-GEV (RGMLE)
+boxplot.summary.rp |> filter(model_label == "sgb") |> print(n = Inf)        # IDF-SGB
+
+# Avaliando estimativas de theta
+gg.max.bias <- unique(boxplot.summary.rp$max_gauge)
+par.dgev.wide |> 
+  filter(gauge_code %in% gg.max.bias, prior %in% prior.names[c(1,4)]) |> 
+  print(n = Inf)
+
+# Conferir se há estações com r_bias > 0 p/ todas as durações
+performance.high.rp |> 
+  group_by(gauge_code, model_label) |> 
+  summarise(positive_bias = sum(r_bias > 0)/24 > 0.5, .groups = "drop") |> 
+  pivot_wider(
+    id_cols = gauge_code,
+    names_from = model_label,
+    values_from = positive_bias
+  ) |> print(n = Inf)
+
+# Correlação entre os parâmetros e rBIAS
+par.order <- c("xit", "alpha0", "kappa", "H", "theta")
+par.labels <- c("ξ&#771;", "α<sub>0</sub>", "κ", "H", "Θ")
+error.par.correlation <- performance.high.rp |> 
+  filter(model_label == "dgev_rgmle") |> 
+  left_join(
+    par.dgev.df |> 
+      filter(model == prior.names[4]) |> 
+      select(gauge_code, parname, par),
+    by = "gauge_code", relationship = "many-to-many"
+  ) |> 
+  mutate(parname = factor(parname, par.order, par.labels))
+
+p_load(ggpmisc)
+
+error.par.correlation |> 
+  ggplot(aes(x = par, y = r_bias)) +
+  facet_wrap(~parname, ncol = 1, scales = "free_x") +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.4) +
+  ggpmisc::stat_poly_eq(
+    formula = y ~ x, 
+    aes(label = paste(after_stat(eq.label), after_stat(rr.label), sep = "~~~")), 
+    parse = TRUE, family = font, size = textsize, label.x = "right", label.y = "top"
+  ) +
+  labs(y = "rBIAS", x = NULL) +
+  theme(strip.text = element_markdown())
+
+ggsave(
+  "figuras/preliminares/subdiarios/correlacao_vies_par_dgev_rgmle.png",
+  width = 15, height = 20, units = "cm", dpi = 600
+)
+
+error.par.correlation |> 
+  filter(parname == par.labels[3]) |> 
+  ggplot(aes(x = par, y = r_bias)) +
+  facet_wrap(~parname, ncol = 1, scales = "free_x") +
+  geom_hline(yintercept = 0, linewidth = 0.2, color = "grey80") +
+  # geom_point(shape = 21, aes(color = d), fill = NA, size = 1) +
+  geom_point(shape = 21, color = "black", fill = NA, size = 1) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.4, color = "red") +
+  ggpmisc::stat_correlation(mapping = use_label("R"), method = "pearson", family = font, size = textsize) +
+  ggpmisc::stat_poly_eq(
+    formula = y ~ x, 
+    aes(label = paste(after_stat(eq.label), after_stat(rr.label), sep = "~~~")), 
+    parse = TRUE, family = font, size = textsize, label.x = "right", label.y = "top"
+  ) +
+  labs(y = "rBIAS", x = par.labels[3]) +
+  theme(strip.text = element_blank())
+
+ggsave(
+  "figuras/preliminares/subdiarios/correlacao_vies_kappa_dgev_rgmle.png",
+  width = 15, height = 10, units = "cm", dpi = 600
+)
+
 
 # ------------------------------------------------------------------------
 
@@ -2609,26 +2635,13 @@ par.labels <- performance.sgb.df |>
 
 # Visualização da IDF de todas as estações e comparar IDF-SGB com quantis da GEV por duração
 idf.sgb.plot <- performance.sgb.df |> 
-  filter(plot_pos == "weibull") |> 
-  left_join(
-    bind_rows(
-      lapply(seq_along(par.lmom.ls), function(i){
-        gg <- names(par.lmom.ls[i])
-        m <- par.lmom.ls[[i]]
-        as.data.frame(m) |> mutate(gauge_code = gg, d = seq_len(24), .before = 1)
-      })
-    ),
-    by = c("gauge_code", "d")
-  ) |> 
-  rowwise() |> 
   mutate(
-    q_gev = qgev(param = c(xi, alpha, kappa), p.nexceed = 1 - p), # calcular modelo GEV (LMOM)
+    return_period = factor(return_period),
     gauge_label = gauge.labels[gauge_code]
   ) |> 
-  ungroup() |> 
-  ggplot(aes(x = d, group = factor(return_period))) +
+  filter(plot_pos == "weibull") |> 
+  ggplot(aes(x = d, group = return_period)) +
   facet_wrap(~gauge_label, ncol = 4) +
-  # geom_line(aes(y = q_gev, color = "GEV (LMOM)"), linewidth = 0.3) +
   geom_line(aes(y = imax, color = "Intensidades observadas"), linewidth = 0.3) +
   geom_line(aes(y = q, color = "IDF-SGB"), linewidth = 0.1) +
   geom_text(
@@ -2647,12 +2660,11 @@ idf.sgb.plot <- performance.sgb.df |>
     aes(x = Inf, y = Inf, label = sprintf("Θ: %7.3f", theta)), par.labels, inherit.aes = FALSE,
     family = font, hjust = 1.1, vjust = 6.3, size = textsize*0.55
   ) +
-  scale_x_log10(name = "Duração [h]") +
+  scale_x_log10(name = "Duração [h]", breaks = c(1, 3, 9, 24)) +
   scale_y_log10(name = "Intensidade [mm/h]") +
   scale_color_manual(
     name = NULL, 
-    # values = c("GEV (LMOM)" = "grey80", "IDF-SGB" = "firebrick")
-    values = c("Intensidades observadas" = "grey90", "IDF-SGB" = sgb.col)
+    values = c("Intensidades observadas" = "grey90", "IDF-SGB" = "grey20")
   ) +
   theme(
     text = element_text(size = fontsize*0.8),
@@ -2664,13 +2676,16 @@ idf.sgb.plot <- performance.sgb.df |>
     color = guide_legend(override.aes = list(linewidth = 0.4))
   ); idf.sgb.plot
 
-ggsave("figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+ggsave(
+  "figuras/preliminares/subdiarios/idf_sgb.png", idf.sgb.plot, 
+  width = 15.5, height = 23, units = "cm", dpi = 600
+)
 
 
 # Visualizar d-GEV
 par.labels <- performance.dgev.df |> 
-  filter(model == "d-GEV", prior == names(prior.names)[[1]]) |> 
-  # filter(model == "d-GEV", prior == names(prior.names)[[4]]) |> 
+  # filter(model == "d-GEV", prior == names(prior.names)[[1]]) |> # MLE
+  filter(model == "d-GEV", prior == names(prior.names)[[4]]) |> # RGMLE
   slice_head(by = gauge_code) |> 
   mutate(gauge_label = gauge.labels[gauge_code]) |> 
   select(gauge_label, model, prior, par) |> 
@@ -2706,8 +2721,8 @@ idf.dgev.plot <- performance.df |>
   scale_y_log10(name = "Intensidade [mm/h]") +
   scale_color_manual(
     name = NULL,
-    # values = c("d-GEV (MLE)" = prior.col[[1]], "Intensidades observadas" = "grey90")
-    values = c("d-GEV (RGMLE)" = prior.col[[4]], "Intensidades observadas" = "grey90")
+    # values = c("d-GEV (MLE)" = prior.col[[1]], "Intensidades observadas" = "grey90") # MLE
+    values = c("d-GEV (RGMLE)" = prior.col[[4]], "Intensidades observadas" = "grey90") # RGMLE
   ) +
   theme(
     text = element_text(size = fontsize*0.8),
@@ -2719,8 +2734,14 @@ idf.dgev.plot <- performance.df |>
     color = guide_legend(override.aes = list(linewidth = 0.4))
   ); idf.dgev.plot
 
-# ggsave("figuras/preliminares/subdiarios/idf_dgev_mle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
-ggsave("figuras/preliminares/subdiarios/idf_dgev_rgmle.png", idf.dgev.plot, width = 15.5, height = 23, units = "cm", dpi = 300)
+# ggsave(
+#   "figuras/preliminares/subdiarios/idf_dgev_mle.png", idf.dgev.plot, 
+#   width = 15.5, height = 23, units = "cm", dpi = 600
+# )
+ggsave(
+  "figuras/preliminares/subdiarios/idf_dgev_rgmle.png", idf.dgev.plot, 
+  width = 15.5, height = 23, units = "cm", dpi = 600
+)
 
 
 # ------------------------------------------------------------------------
@@ -2732,6 +2753,219 @@ ggsave("figuras/preliminares/subdiarios/idf_dgev_rgmle.png", idf.dgev.plot, widt
 ## CURVAS DE FREQUÊNCIA --------------------------------------------------
 
 # Plotar curvas de frequências p/ comparar quantis estimados c/ 
+
+# Verificar estações c/ erros nos ICs
+idf.dgev.df |> pull(error_message) |> unique() # NA
+
+# Tempos de retorno p/ quais os quantis c/ incerteza foram calculados
+available.rp <- idf.dgev.df |> pull(return_period) |> unique()
+
+par.dgev.wide <- par.dgev.df |> 
+  pivot_wider(
+    id_cols = c(gauge_code, prior, model),
+    names_from = parname,
+    values_from = par
+  ) |> 
+  mutate(
+    gauge_label = gauge.labels[gauge_code],
+    prior = model, model = "d-GEV", 
+    .after = gauge_code
+  )
+
+# Juntar resultados
+idf.df <- idf.dgev.df |> # quantis estimados c/d-GEV
+  select(gauge_code, model, d, return_period, q, ci_lower, ci_upper) |> 
+  mutate(
+    gauge_label = gauge.labels[gauge_code],
+    prior = model, model = "d-GEV", .after = gauge_code
+  ) |> 
+  left_join( 
+    par.dgev.wide, # juntar parâmetros estimados
+    by = c("gauge_code", "gauge_label", "prior", "model")
+  )
+
+# Função p/ fazer figura
+idf.plot <- function(df, par, plot.gauges, plot.model, plot.prior, plot.rp, colors,
+  tsize, par.label.x = 1.1, par.label.y = 2.3, prior.label, ncol = 2
+){
+
+  # Filtrar parametros
+  par <- par |> filter(model == plot.model, prior == plot.prior)
+
+  # Filtrar quantis
+  df <- df |> 
+    filter(model == plot.model, prior == plot.prior, return_period %in% plot.rp) |> 
+    mutate(return_period = factor(return_period))
+
+  # Filtrar estações
+  if(!is.null(plot.gauges)) df <- df[df$gauge_code %in% plot.gauges,]
+  if(!is.null(plot.gauges)) par <- par[par$gauge_code %in% plot.gauges,]
+
+  model.label <- sprintf("%s (%s)", plot.model, prior.label)
+
+  ggplot(df, aes(x = d, y = q, color = return_period, fill = return_period)) +
+    facet_wrap(~gauge_label, ncol = ncol) +
+    geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.2, linewidth = 0) +
+    geom_line(linewidth = 0.2) +
+    annotate(
+      geom = "text", x = Inf, y = Inf, label = model.label, 
+      hjust = par.label.x - nchar(model.label)/400, vjust = par.label.y, family = font, size = tsize
+    ) +
+    geom_text(
+      aes(x = Inf, y = Inf, label = sprintf("κ = %7.3f", kappa)), par, inherit.aes = FALSE,
+      hjust = par.label.x, vjust = par.label.y + tsize, family = font, size = tsize
+    ) +
+    geom_text(
+      aes(x = Inf, y = Inf, label = sprintf("H = %7.3f", H)), par, inherit.aes = FALSE,
+      hjust = par.label.x, vjust = par.label.y + 2*tsize, family = font, size = tsize
+    ) +
+    geom_text(
+      aes(x = Inf, y = Inf, label = sprintf("Θ = %7.3f", theta)), par, inherit.aes = FALSE,
+      hjust = par.label.x, vjust = par.label.y + 3*tsize, family = font, size = tsize
+    ) +
+    scale_color_manual(
+      name = NULL, values = colors, aesthetics = list("color", "fill"),
+      labels = paste(plot.rp, "anos")
+    ) +
+    scale_x_log10(name = "Duração [h]", breaks = c(1, 3, 9, 24)) +
+    scale_y_log10(name = "Intensidade [mm/h]") +
+    theme(legend.position = c(0, -0.01), legend.justification = c(0, 0))
+
+} # fim `idf.plot`
+
+# Argumentos
+plot.rp <- c(5, 20, 100)
+plot.gauges <- c("A801", "A803", "A813", "A844")
+# colors <- c("black", "grey40", "grey70")
+colors <- c("#a53f00", "#FE6100", "#ffa56d")
+
+# Plotar p/ 4 estações --- RGMLE
+idf.rgmle.plot <- idf.plot(
+  df = idf.df, par = par.dgev.wide,
+  plot.gauges = plot.gauges,
+  plot.model = "d-GEV",
+  plot.prior = prior.names[4], # RGMLE
+  prior.label = "RGMLE",
+  plot.rp = plot.rp,
+  tsize = textsize*0.8,
+  colors = colors
+); idf.rgmle.plot
+
+ggsave(
+  "figuras/preliminares/subdiarios/idf_rgmle_rp.png", idf.rgmle.plot,
+  width = 15, height = 12, units = "cm", dpi = 600
+)
+
+# Plotar p/ todas as estações --- RGMLE
+idf.rgmle.todas.plot <- idf.plot(
+  df = idf.df, par = par.dgev.wide,
+  plot.gauges = NULL,
+  plot.model = "d-GEV",
+  plot.prior = prior.names[4], # RGMLE
+  prior.label = "RGMLE",
+  plot.rp = plot.rp,
+  tsize = textsize*0.6, par.label.y = 2,
+  colors = colors,
+  ncol = 4
+) +
+  theme(
+    text = element_text(size = fontsize*0.8),
+    strip.text = element_text(size = fontsize*0.6, margin = margin(b = 2)),
+    panel.border = element_rect(linewidth = 0.3, color = "black"),
+    legend.margin = margin(),
+    legend.position = "bottom", legend.justification = "center",
+    axis.title = element_text(margin = margin())
+  ); idf.rgmle.todas.plot
+
+ggsave(
+  "figuras/preliminares/subdiarios/idf_rgmle_rp_todas.png", idf.rgmle.todas.plot,
+  width = 15.5, height = 23, units = "cm", dpi = 600
+)
+
+
+colors <- c("#183889", "#648FFF", "#a2bdff")
+
+# Plotar p/ 4 estações --- MLE
+idf.mle.plot <- idf.plot(
+  df = idf.df, par = par.dgev.wide,
+  plot.gauges = plot.gauges,
+  plot.model = "d-GEV",
+  plot.prior = prior.names[1], # MLE
+  prior.label = "MLE",
+  plot.rp = plot.rp,
+  tsize = textsize*0.8,
+  colors = colors
+); idf.mle.plot
+
+ggsave(
+  "figuras/preliminares/subdiarios/idf_mle_rp.png", idf.mle.plot,
+  width = 15, height = 12, units = "cm", dpi = 600
+)
+
+# Plotar p/ todas estações --- MLE
+idf.mle.plot.todas <- idf.plot(
+  df = idf.df, par = par.dgev.wide,
+  plot.gauges = NULL,
+  plot.model = "d-GEV",
+  plot.prior = prior.names[1], # MLE
+  prior.label = "MLE",
+  plot.rp = plot.rp,
+  tsize = textsize*0.6, par.label.y = 2,
+  colors = colors, 
+  ncol = 4
+) +
+  theme(
+    text = element_text(size = fontsize*0.8),
+    strip.text = element_text(size = fontsize*0.6, margin = margin(b = 2)),
+    panel.border = element_rect(linewidth = 0.3, color = "black"),
+    legend.margin = margin(),
+    legend.position = "bottom", legend.justification = "center",
+    axis.title = element_text(margin = margin())
+  ); idf.mle.plot.todas
+
+ggsave(
+  "figuras/preliminares/subdiarios/idf_mle_rp_todas.png", idf.mle.plot.todas,
+  width = 15.5, height = 23, units = "cm", dpi = 600
+)
+
+
+# Informações complementares
+rgmle.influence <- idf.dgev.df |> 
+  filter(model %in% prior.names[c(1,4)]) |> 
+  select(gauge_code, d, return_period, q, ci_lower, ci_upper, model) |> 
+  mutate(
+    ci_width = ci_upper - ci_lower,
+    rel_ci_width = ci_width/q
+  ) |> 
+  left_join(
+    par.dgev.wide |> filter(prior %in% prior.names[c(1,4)]) |> select(gauge_code, prior, kappa),
+    by = join_by(gauge_code, model == prior)
+  ) |> 
+  mutate(model = ifelse(model == "MLE", "mle", "rgmle")) |> 
+  pivot_wider(
+    id_cols = c(gauge_code, d, return_period),
+    names_from = model,
+    values_from = c(rel_ci_width, kappa)
+  )
+
+# Avaliar estimativas de kappa parecidas
+rgmle.influence |> 
+  mutate(diff_kappa = abs(kappa_rgmle - kappa_mle), .before = kappa_mle) |> 
+  arrange(diff_kappa) |> View()
+
+# Avaliar relação entre kappa e diminuição de IC
+changes <- rgmle.influence |> 
+  mutate(
+    n_years = imax.df$n_years[match(gauge_code, imax.df$gauge_code)],
+    diff_kappa = kappa_rgmle < kappa_mle,
+    smaller_ci_with_rgmle = rel_ci_width_rgmle < rel_ci_width_mle,
+    .after = gauge_code
+  ) |> 
+  filter(
+    n_years %in% c(8,9)
+  )
+
+table(changes$diff_kappa, changes$smaller_ci_with_rgmle)
 
 
 # ------------------------------------------------------------------------
