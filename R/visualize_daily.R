@@ -449,6 +449,10 @@ ratios.gev <- tibble(kappa = seq(-0.4, 0.45, 0.001)) |>
     t4 = (1 - 6*2^(-kappa) + 10*3^(-kappa) - 5*4^(-kappa))/(1 - 2^(-kappa))
   )
 
+# Destacar estações c/ N > 80 anos
+gg.80yr <- ratios.sam |> 
+  filter(n_years > 80, t4 > ratios.gum[["t4"]]) |> 
+  mutate(id = info.df$id[match(gauge_code, info.df$gauge_code)])
 
 # Juntar todo mundo
 ratios <- bind_rows(ratios.sam, ratios.av, ratios.gum, ratios.gev)
@@ -485,6 +489,8 @@ ratio.diagram.plot <- ggplot(mapping = aes(x = t3, y = t4)) +
   geom_point(aes(color = record), ratios.sam, alpha = 0.8, size = 0.8, key_glyph = "rect") +
   geom_point(aes(shape = "Média"), ratios.av, color = av.col, size = 2) +
   geom_point(aes(shape = "Gumbel"), ratios.gum, color = gu.col, size = 2) +
+  geom_point(data = gg.80yr, shape = 21, fill = NA, color = "black", size = 2.2) +
+  geom_text(aes(label = id), gg.80yr, hjust = 0.5, vjust = -1, family = font, size = textsize*1.2, color = "black") +
   scale_color_manual(name = "N [anos]", values = yr.col) +
   scale_shape_manual(name = NULL, values = c(17, 16)) +
   scale_linetype_manual(name = NULL, values = "solid") +
