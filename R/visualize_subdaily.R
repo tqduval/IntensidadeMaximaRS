@@ -683,6 +683,14 @@ stats.df |> slice_min(d) |> count(n_years == 8) |> mutate(prop = n/(sum(n)))
 stats.df |> slice_min(d) |> count(n_years <= 9) |> mutate(prop = n/(sum(n)))
 stats.df |> slice_min(d) |> count(n_years == 13) |> mutate(prop = n/(sum(n)))
 
+# Número de estações com theta == 0
+par.dgev.df |> filter(model == "MLE", parname == "theta", par == 0) |> nrow() # 20 estações
+par.dgev.df |> filter(model == "RGMLE – B(0.0178, 0.0627)", parname == "theta", par == 0) |> nrow() # 18 estações
+
+# Número de estações com theta < 0.1
+par.dgev.df |> filter(model == "MLE", parname == "theta", par < 0.1) |> nrow() # 24 estações
+par.dgev.df |> filter(model == "RGMLE – B(0.0178, 0.0627)", parname == "theta", par < 0.1) |> nrow() # 23 estações
+
 
 
 ## DIAGRAMA DE L-MOMENTOS POR TAMANHO DAS SÉRIES -------------------------
