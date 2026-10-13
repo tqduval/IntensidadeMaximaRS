@@ -53,7 +53,7 @@ arrow::write_parquet(yr.data, "base/gerados/df_subdaily_yrsum.pqt")
 # AGREGAR DURAÇÕES --------------------------------------------------------
 
 # Agrupar séries por 'time_steps'
-data.ls <- split(df.data, f = df.data$gauge_code)            # lista de data.frames de duração
+data.ls <- split(data.df, f = data.df$gauge_code)            # lista de data.frames de duração
 data.by.time <- fun_group_ts(data.ls, ts_name = "time_step") # agrupar em durações diferentes numa lista
 
 # Durações

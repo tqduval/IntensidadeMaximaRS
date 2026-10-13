@@ -317,6 +317,35 @@ ggsave(
   width = 15, height = 10, units = "cm", dpi = 300, bg = "white"
 )
 
+# Figuras por faixa:
+df.scale |> 
+  filter(gauge_code != "Regional", d %in% c("Sub-horários", "Horários", "Diários")) |> 
+  mutate(
+    gauge_code = factor(gauge_code, levels = order.gg),
+    id = factor(id, levels = order.id),
+    d = factor(d, groups)
+  ) |> 
+  # mutate(gauge_code = fct_reorder(gauge_code, statistic)) |> 
+  ggplot(mapping = aes(y = statistic, ymin = ci_lower, ymax = ci_upper, color = d)) +
+  # geom_errorbar(aes(x = id), width = 0, linewidth = 0.4, alpha = 0.5, position = position_dodge(width = dodge.width)) +
+  ylim(min(df.scale$ci_lower), max(df.scale$ci_upper)) +
+  geom_point(aes(x = id), shape = 16, size = 0.6, alpha = 0.9, position = position_dodge(dodge.width)) +
+  labs(x = "ID", y = "H", color = "Faixa de duração") +
+  scale_color_manual(
+    name = NULL, values = colors, aesthetics = c("color", "fill")
+  ) + 
+  theme(
+    legend.position = c(0, -0.02),
+    legend.justification = c(0, 0),
+    legend.key.width = unit(12, "pt"),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+  )
+
+ggsave(
+  "figuras/preliminares/subdiarios/defesa/plot_scale_ci_todos.png",
+  width = 15, height = 10, units = "cm", dpi = 300, bg = "white"
+)
+
 # Informações adicionais
 # Valores regionais
 df.scale |> 

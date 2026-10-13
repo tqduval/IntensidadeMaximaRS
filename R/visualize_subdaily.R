@@ -961,7 +961,8 @@ ggsave("figuras/preliminares/subdiarios/ci_kappa_gev_lmom_boot.png", shape.boot.
 # Visualizar intervalos de confiança de kappa POR DURAÇÃO com estimativas
 # da GEV com L-momentos --- figura c/ estações em `select.gg`
 shape.boot.plot <- shape.boot.df |> 
-  filter(gauge_code %in% select.gg) |> 
+  # filter(gauge_code %in% select.gg) |> 
+  filter(gauge_code %in% select.gg[1]) |> 
   mutate(gauge_label = gauge.labels[gauge_code]) |> 
   select(!c(model, method, id)) |> 
   ggplot(aes(x = factor(d), y = kappa)) +
@@ -990,6 +991,16 @@ ggsave(
 # Visualizar intervalos de confiança p/ kappa com POR DURAÇÃO
 # com estimativas com perfil de verossimilhança + priori GMLE (media 0 e -0.1) e RGMLE
 # p/ estações selecionadas --- `select.gg`
+range.y <- c(
+  par.gev.df |> 
+    filter(parname == "kappa", gauge_code == select.gg[1], prior != "NULL") |> 
+    pull(ci_lower) |> 
+    min(),
+  par.gev.df |> 
+    filter(parname == "kappa", gauge_code == select.gg[1], prior != "NULL") |> 
+    pull(ci_upper) |> 
+    max()
+)
 shape.prof.plot <- par.gev.df |> 
   filter(gauge_code == select.gg[1]) |> 
   mutate(
@@ -998,7 +1009,8 @@ shape.prof.plot <- par.gev.df |>
   ) |> 
   filter(
     parname == "kappa",
-    prior_label %in% prior.names[2:4] # selecionar GMLE - B(0,0.122); GMLE - B(-0.1,0.122); RGMLE - B(0.0178,0.0627)
+    # prior_label %in% prior.names[2:4], # selecionar GMLE - B(0,0.122); GMLE - B(-0.1,0.122); RGMLE - B(0.0178,0.0627)
+    prior_label == prior.names[3:4]
   ) |> 
   ggplot(aes(x = factor(d), y = par, color = prior_label)) +
   facet_wrap(~factor(gauge_label, order.n), ncol = 4) +
@@ -1009,6 +1021,7 @@ shape.prof.plot <- par.gev.df |>
     width = 0, linewidth = 0.4, alpha = 0.7, position = position_dodge(0.55)
   ) +
   geom_point(size = 0.3, position = position_dodge(0.55)) +
+  scale_y_continuous(limits = range.y) +
   scale_x_discrete(breaks = c(1, 6, 12, 18, 24)) +
   scale_color_manual(name = NULL, values = prior.col) +
   labs(x = "Durações [h]", y = "κ") +
@@ -1018,8 +1031,14 @@ shape.prof.plot <- par.gev.df |>
     legend.key.size = unit(3, "mm"),
     # text = element_text(size = fontsize*0.8),
     panel.border = element_rect(linewidth = 0.3, color = "black"),
-    strip.text = element_text(hjust = 0)
+    strip.text = element_text(hjust = 0),
+    panel.grid.major.x = element_line(linewidth = 0.2, color = "grey80")
   ); shape.prof.plot
+
+ggsave(
+  "figuras/preliminares/subdiarios/defesa/ci_kappa_rgmle_com_ic.png", shape.prof.plot,
+  width = 15, height = 8, units = "cm", dpi = 300
+)
 
 ggsave(
   "figuras/preliminares/subdiarios/ci_kappa_gev_gmle_rgmle_selected.png", shape.prof.plot,
@@ -1399,13 +1418,16 @@ plot.ls <- lapply(seq_along(par.ls), function(i){
       style = north_arrow_nautical(text_family = font, text_size = fontsize, fill = c("black", "white"))
     ) +
     annotate(
-      geom = "richtext", x = -Inf, y = Inf, label = sprintf("(%s) %s", subtitle[i], par.labels[i]),
+      geom = "richtext", x = -Inf, y = Inf, label = sprintf("%s", par.labels[i]),
       family = font, size = textsize*1.2, hjust = -0.01, vjust = 1.1, fill = NA, label.color = NA
     ) +
     theme(
       legend.position = c(0, -0.02),
       legend.justification = c(0, 0),
-      legend.key.spacing.y = unit(-1, "pt"),
+      # legend.key.spacing.y = unit(-1, "pt"),
+      legend.key.spacing.y = unit(2, "pt"),
+      legend.text = element_text(size = 13),
+      legend.key.size = unit(13, "pt"),
       panel.border = element_rect(linewidth = 0.3),
       plot.margin = margin(3, 3, 3, 3)
     )
@@ -1436,6 +1458,20 @@ par.dgev.df |>
     par == 0
   ) |> 
   nrow()
+
+par.dgev.df |> 
+  filter(
+    model == prior.names[3],
+    parname == "kappa"
+  ) |> 
+  mutate(negative = par < 0) |> 
+  count(negative)
+
+# Figuras p/ defesa
+ggsave(
+  "figuras/preliminares/defesa/mapa_dgev_par_kappa.png", plot.ls[3], 
+  width = 12, height = 12, units = "cm", dpi = 600
+)
 
 
 ### Tabela com parâmetros estimados --------------------------------------

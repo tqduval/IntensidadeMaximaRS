@@ -43,7 +43,17 @@ daily.sf <- read_sf("base/sig/sf_daily.gpkg") |>
   mutate(gauge_code = sub("^0", "", gauge_code)) |> 
   filter(!gauge_code %in% c("SBPA", "SBUG", "SBSM"))
 
+subdaily.imax.df <- arrow::read_parquet("base/gerados/df_imax.pqt") |> 
+  filter(na_prct_yr <= 0.2) |> 
+  group_by(gauge_code) |> 
+  filter(n_distinct(wateryear) >= 8) |> 
+  ungroup()
+
+n_distinct(subdaily.imax.df$gauge_code)
+valid.subdaily.gauges <- unique(subdaily.imax.df$gauge_code)
+
 subdaily.sf <- arrow::read_parquet("base/fonte/subdaily/df_subdaily_info.pqt") |> 
+  filter(gauge_code %in% valid.subdaily.gauges) |> 
   st_as_sf(coords = c("long", "lat"), crs = st_crs(rs.sf)) |> 
   select(gauge_code, geometry)
 
@@ -94,7 +104,7 @@ n.years <- info.df$n_years
 n.breaks <- 5
 probs <- seq(0, 1, length.out = n.breaks + 1)
 breaks <- quantile(n.years, probs, type = 1, names = FALSE) # type = 1 garante valores inteiros
-breaks <- c(31, 40, 60, 70, 80, max(n.years))
+# breaks <- c(31, 40, 60, 70, 80, max(n.years))
 yr.interval <- cut(n.years, breaks, right = FALSE, include.lowest = TRUE)
 info.df$yr_interval <- yr.interval
 pmax.df <- pmax.df |> mutate(yr_interval = cut(n_years, breaks, right = FALSE, include.lowest = TRUE))
@@ -489,8 +499,8 @@ ratio.diagram.plot <- ggplot(mapping = aes(x = t3, y = t4)) +
   geom_point(aes(color = record), ratios.sam, alpha = 0.8, size = 0.8, key_glyph = "rect") +
   geom_point(aes(shape = "Média"), ratios.av, color = av.col, size = 2) +
   geom_point(aes(shape = "Gumbel"), ratios.gum, color = gu.col, size = 2) +
-  geom_point(data = gg.80yr, shape = 21, fill = NA, color = "black", size = 2.2) +
-  geom_text(aes(label = id), gg.80yr, hjust = 0.5, vjust = -1, family = font, size = textsize*1.2, color = "black") +
+  # geom_point(data = gg.80yr, shape = 21, fill = NA, color = "black", size = 2.2) +
+  # geom_text(aes(label = id), gg.80yr, hjust = 0.5, vjust = -1, family = font, size = textsize*1.2, color = "black") +
   scale_color_manual(name = "N [anos]", values = yr.col) +
   scale_shape_manual(name = NULL, values = c(17, 16)) +
   scale_linetype_manual(name = NULL, values = "solid") +
@@ -524,6 +534,7 @@ ratios.boxplot.nyr <- ratios.sam |>
   ); ratios.boxplot.nyr
 
 # Juntar todo mundo
+# P/ dissertação
 ratios.plot <- 
   wrap_plots(ratio.diagram.plot + labs(subtitle = "(a)")) +
   wrap_plots(ratios.boxplot.nyr + labs(subtitle = "(b)")) +
@@ -531,6 +542,17 @@ ratios.plot <-
 
 ggsave(
   "figuras/preliminares/diarios/diagrama_lmomentos.png", ratios.plot, 
+  width = 15, height = 8, units = "cm", dpi = 300
+)
+
+# P/ defesa
+ratios.plot <- 
+  wrap_plots(ratio.diagram.plot + labs(subtitle = "(a)")) +
+  wrap_plots(ratios.boxplot.nyr + labs(subtitle = "(b)")) +
+  plot_layout(widths = c(1, 0.8)); ratios.plot
+
+ggsave(
+  "figuras/preliminares/diarios/defesa/diagrama_lmomentos.png", ratios.plot, 
   width = 15, height = 8, units = "cm", dpi = 300
 )
 
