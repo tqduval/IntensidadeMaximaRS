@@ -3,3 +3,11 @@ base/gerados filter=lfs diff=lfs merge=lfs -text
 base/gerados/**/*.rds filter=lfs diff=lfs merge=lfs -text
 base/gerados/sig/**/*.tif filter=lfs diff=lfs merge=lfs -text
 base/sig/precipitacao_xavier/** filter=lfs diff=lfs merge=lfs -text
+
+/figuras/ export-ignore
+/tabelas/ export-ignore
+/base/ export-ignore
+/scr/ export-ignore
+/*.Rproj export-ignore
+/.vscode/ export-ignore
+.gitignore export-ignore
