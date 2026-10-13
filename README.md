@@ -12,9 +12,9 @@ Foram utilizadas séries de precipitação subdiária compiladas por [Das Neves 
 ## Códigos
 
 Os códigos estão localizados na pasta [R](R/). Os principais seguem a seguinte ordem de aplicação:
-1. [extract_agg_imax](extract_agg_imax.R): extrair intensidades máximas anuais de precipitação para diferentes durações. Utiliza os scripts auxiliares [fun_filter_set](R/funcoes/fun_filter_set.R), [fun_group_ts](R/funcoes/fun_group_ts.R) e [fun_imax_agg_wateryear](IntensidadeMaximaRS/R/funcoes/fun_imax_agg_wateryear.R);
-2. [fitprof_gev](fitprof_gev.R): ajusta a distribuição GEV por duração e estima intervalos de confiança com verossimilhança perfilada para parâmetros e quantis. Utiliza o script auxiliar [fgev](IntensidadeMaximaRS/R/funcoes/fgev.R);
-3. [fitprof_dgev](IntensidadeMaximaRS/R/fitprof_dgev.R): ajusta o modelo d-GEV e estima intervalos de confiança com verossimilhança perfilada para parâmetros e quantis. Utiliza o script auxiliar [fdgev](IntensidadeMaximaRS/R/funcoes/fdgev.R);
-4. [visualize_subdaily](visualize_subdaily.R): avalia os resultados dos ajustes e gera figuras e tabelas.
+1. [extract_agg_imax](R/extract_agg_imax.R): extrair intensidades máximas anuais de precipitação para diferentes durações. Utiliza os scripts auxiliares [fun_filter_set](R/funcoes/fun_filter_set.R), [fun_group_ts](R/funcoes/fun_group_ts.R) e [fun_imax_agg_wateryear](R/funcoes/fun_imax_agg_wateryear.R);
+2. [fitprof_gev](fitprof_gev.R): ajusta a distribuição GEV por duração e estima intervalos de confiança com verossimilhança perfilada para parâmetros e quantis. Utiliza o script auxiliar [fgev](R/funcoes/fgev.R);
+3. [fitprof_dgev](R/fitprof_dgev.R): ajusta o modelo d-GEV e estima intervalos de confiança com verossimilhança perfilada para parâmetros e quantis. Utiliza o script auxiliar [fdgev](R/funcoes/fdgev.R);
+4. [visualize_subdaily](R/visualize_subdaily.R): avalia os resultados dos ajustes e gera figuras e tabelas.
 
 Demais códigos são auxiliares.
